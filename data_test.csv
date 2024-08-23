@@ -1,0 +1,12 @@
+INDICE|CLASE|ATRIBUTOS
+[1]|<class 'vehiculo.Particular'>|marca: Ford, modelo: Fiesta, ruedas: 4, velocidad: 180, cilindrada: 500, puestos: 5
+[2]|<class 'vehiculo.Carga'>|marca: Draft Trucks, modelo: G 38, ruedas: 10, velocidad: 120, cilindrada: 1000, carga: 20000
+[3]|<class 'vehiculo.Bicicleta'>|marca: Shimano, modelo: MT ranger, ruedas: 2, tipo: Carrera
+[4]|<class 'vehiculo.Motocicleta'>|marca: BMW, modelo: F800s, ruedas: 2, tipo: Deportiva, motor: 2T, cuadro: Doble Viga, radios: 21
+[5]|<class 'vehiculo.Automovil'>|marca: Toyota, modelo: Yaris, ruedas: 4, velocidad: 200, cilindrada: 1200
+[6]|<class 'vehiculo.Motocicleta'>|marca: yamaha, modelo: sun, ruedas: 2, tipo: carrera, motor: v2, cuadro: cuadrado, radios: 12
+[7]|<class 'vehiculo.Bicicleta'>|marca: Treck, modelo: xtreme, ruedas: 2, tipo: deportiva
+[8]|<class 'vehiculo.Carga'>|marca: Mack, modelo: Big, ruedas: 12, velocidad: 160, cilindrada: 4000, carga: 1000
+[9]|<class 'vehiculo.Particular'>|marca: Samsung, modelo: S7, ruedas: 4, velocidad: 220, cilindrada: 1200, puestos: 4
+[10]|<class 'vehiculo.Automovil'>|marca: nissan, modelo: 360z, ruedas: 4, velocidad: 310, cilindrada: 3000
+[11]|<class 'vehiculo.Automovil'>|marca: ford, modelo: skype, ruedas: 4, velocidad: 180, cilindrada: 3000
