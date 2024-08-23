@@ -300,7 +300,6 @@ class CsvClassSave:
             if not self.single:
                 vals_to_check: str = ".+".join([re.escape(f"{str(key).strip('_')}: {val}") for 
                                                 key, val in self.object.__dict__.items() if str(key).strip("_") in enforce_unique])
-                print(vals_to_check)
                 for entry in self.leer_datos_csv(search=vals_to_check, back_up=True, escaped=True):
                     # esto por si el csv contiene elementos de distintas clases
                     if entry[1] == str(self.object.__class__):
