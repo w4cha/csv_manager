@@ -247,16 +247,40 @@ class CsvClassSave:
                     else:
                         if self.single:
                             # this regex is sus
-                            list_of_match = re.findall(r"[^=\s~]+=[^=\s~]+", search)
+                            list_of_match: list = self.__query_parser(search)
                             if list_of_match:
-                                is_in_head = tuple((str(item).split("=") for item in list_of_match ))
-                                col_to_look = tuple(((self.new_head.index(str(val[0]).upper()), val[1]) for val in is_in_head if str(val[0]).upper() in self.new_head))
+                                bool_values: list = []
                                 for row in read:
-                                    if "~" in search:
-                                        if all(map(lambda val: row[val[0]] == val[1], col_to_look)):
+                                    for element in list_of_match:
+                                        if isinstance(element, list):
+                                            val = row[self.new_head.index(element[0])]
+                                            try:
+                                                row_val, expected_val = float(val), float(element[-1])
+                                            except ValueError:
+                                                pass
+                                            else:
+                                                bool_values.append(element[1](row_val, expected_val))
+                                                continue
+                                            try:
+                                                bool_values.append(element[1](val, element[-1]))
+                                            except TypeError:
+                                                bool_values.append(False)
+                                        else:
+                                            bool_values.append(element)
+                                    if len(bool_values) == 1:
+                                        if bool_values[0]:
                                             yield row
                                     else:
-                                        if list(filter(None, map(lambda val: row[val[0]] == val[1], col_to_look))):
+                                         current_value = True
+                                         for item in range(2, len(bool_values), 2):
+                                            current_value = bool_values[item - 2]
+                                            if bool_values[item - 1] == "&":
+                                                current_value = current_value and bool_values[item]
+                                                if not current_value:
+                                                    break
+                                                else:
+                                                    current_value = current_value or bool_values[item]
+                                         if current_value:
                                             yield row
                         for row in read:
                             if row and re.search(f"^.*{re.escape(search) if not escaped else search}.*$", "".join(row[1:]), re.IGNORECASE) is not None:
@@ -442,7 +466,18 @@ class CsvClassSave:
                 for entry in self.leer_datos_csv():
                     filter_.writerow(entry)
             self.current_rows = self.__len__()
-            return deleted_
+            return deleted_       
+
+    def export(self, destination, class_name) -> bool:
+        if self.single:
+            raise AttributeError("opcion de exportación no disponible en modo single = True")
+        if not isinstance(destination, str):
+            raise ValueError(f"el argumento destination debe ser de tipo str pero fue {type(destination).__name__}")
+        destination_route = Path(destination)
+        if not destination_route.is_file():
+            raise ValueError
+        if destination_route.suffix != ".csv":
+            raise ValueError 
 
     #static method
     @staticmethod
@@ -470,6 +505,49 @@ class CsvClassSave:
                 return separator[0], pattern_nums
             return None, [int(str_pattern),]
         return None
+    
+
+    def __query_parser(self, string_pattern) -> list:
+        if not self.single:
+            raise AttributeError("opción de filtrado por selector logico no disponible en modo single = False")
+        operation_hash_table = {">=": lambda x, y : x >= y, "<=": lambda x, y : x >= y, 
+                                "<": lambda x, y : x < y, ">": lambda x, y : x > y,
+                                "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
+        query_regex: str = r'^"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+))?' for _ in range(0, 3)])+"$"
+        new_pattern = re.search(query_regex, string_pattern)
+        if new_pattern is not None:
+            valid_tokens = list(filter(None, new_pattern.groups()))
+            contents: list = []
+            sub_queries: list = []
+            for count, token in enumerate(valid_tokens, 1):
+                if count % 4 == 0:
+                    new_query: list = [] + sub_queries
+                    contents.append(new_query)
+                    contents.append(token)
+                    sub_queries.clear()
+                else:
+                    sub_queries.append(token)
+            contents.append([] + sub_queries)
+            sub_queries.clear()
+            next_token: bool = True
+            for query in contents:
+                if isinstance(query, list):
+                    if str(query[0]).upper() in self.new_head:
+                        sub_queries.append([str(query[0]).upper(), operation_hash_table[query[1]], query[2]])
+                        if not next_token:
+                            next_token = True
+                    else:
+                        next_token = False
+                        try:
+                            if isinstance(sub_queries[-1], str):
+                                sub_queries.pop()
+                        except IndexError:
+                            pass
+                else:
+                    if next_token:
+                        sub_queries.append(query)
+            return sub_queries
+        return []
 
     def __len__(self) -> int:
         with open(str(self.backup_multi if not self.single else self.backup_single), 
