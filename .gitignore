@@ -1,6 +1,7 @@
 #Ignore data folder
 data
 env
+__pycache__
 
 #ignore txt
 *.txt

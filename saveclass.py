@@ -57,15 +57,14 @@ class CsvClassSave:
             self.can_save = False
         self.accepted_files: tuple[str, str] = (self.file_path, str(self.backup_multi if not self.single else self.backup_single))
         # crea el directorio del backup si no exite
-        try:
-            # this is equal to os.makedirs(os.path.dirname(str(self.backup)))
-            Path(self.backup_single.parent).mkdir()
-        except FileExistsError:
-            pass
-        else:
-            with open(str(self.backup_multi), "w", newline="", encoding="utf-8") as _:
-                pass
+        backup_directory = Path(self.backup_single.parent)
+        if not backup_directory.is_dir():
+            backup_directory.mkdir()
+        if self.single and not self.backup_single.is_file():
             with open(str(self.backup_single), "w", newline="", encoding="utf-8") as _:
+                pass
+        elif not self.single and not self.backup_multi.is_file():
+            with open(str(self.backup_multi), "w", newline="", encoding="utf-8") as _:
                 pass
         # se verifica que el backup y el archivo principal tengan el mismo contenido
         # a la hora de ejecutar el programa mediante la comparacion de un hash de
@@ -90,9 +89,12 @@ class CsvClassSave:
 
         # we give priority to the backup the user
         # shouldn't change the file manually
+        if not self.single:
+            self.current_classes: list = []
         self.current_rows: int = self.__len__()
         if len(hash_list) == 2:
-            self.borrar_datos(delete_index="borrar todo", rewrite=True)
+            # like this for the code to execute
+            next(self.borrar_datos(delete_index="borrar todo", rewrite=True))
         # si el archivo tiene más filas que el limite fijado
         # entonces el usuario no puede escribir nuevas entradas
         if self.current_rows > self.max_row_limit:
@@ -201,7 +203,7 @@ class CsvClassSave:
     # and the second value is the type of the value an iterator can accept from outside using
     # the .send() method of a generator
     def leer_datos_csv(self, search: str = "", back_up: bool = False, escaped: bool = False) -> Generator[list[str], None, None]:
-        """metodo publico leer datos csv
+        """metodo publico leer_datos_csv
         Argumentos: 
         -search es la str que se usa para buscar dentro del csv 
         -back_up es para buscar en el csv de backup enves del original
@@ -246,11 +248,10 @@ class CsvClassSave:
                                     break
                     else:
                         if self.single:
-                            # this regex is sus
                             list_of_match: list = self.__query_parser(search)
                             if list_of_match:
-                                bool_values: list = []
                                 for row in read:
+                                    bool_values: list = []
                                     for element in list_of_match:
                                         if isinstance(element, list):
                                             val = row[self.new_head.index(element[0])]
@@ -271,15 +272,18 @@ class CsvClassSave:
                                         if bool_values[0]:
                                             yield row
                                     else:
-                                         current_value = True
-                                         for item in range(2, len(bool_values), 2):
-                                            current_value = bool_values[item - 2]
-                                            if bool_values[item - 1] == "&":
-                                                current_value = current_value and bool_values[item]
-                                                if not current_value:
-                                                    break
-                                                else:
-                                                    current_value = current_value or bool_values[item]
+                                         current_value = bool_values[0]     
+                                         operation = "?"
+                                         for item in bool_values:
+                                             if item == "|":
+                                                 operation = "|"
+                                             elif item == "&":
+                                                 operation = "&"
+                                             else:
+                                                 if operation == "|":
+                                                     current_value = current_value or item
+                                                 elif operation == "&":
+                                                     current_value = current_value and item
                                          if current_value:
                                             yield row
                         for row in read:
@@ -291,7 +295,7 @@ class CsvClassSave:
                             yield row
         
     def guardar_datos_csv(self, enforce_unique = None) -> str:
-        """metodo publico guardar datos csv
+        """metodo publico guardar_datos_csv
         permite escribir una nueva entrada en un archivo csv y retornar la nueva entrada añadida
         Argumentos: 
         -enforce unique puede ser None o una tupla con str, permite decidir si 
@@ -321,15 +325,15 @@ class CsvClassSave:
             # se tiene atributos que usan algun tipo decorador como
             # el property y setter
             # asi puedo buscar en atributos no consecutivos para ver si son unicos
-            if not self.single:
-                vals_to_check: str = ".+".join([re.escape(f"{str(key).strip('_')}: {val}") for 
+            if not self.single and str(self.object.__class__) in self.current_classes:
+                vals_to_check: str = ".+".join([re.escape(f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}') for 
                                                 key, val in self.object.__dict__.items() if str(key).strip("_") in enforce_unique])
                 for entry in self.leer_datos_csv(search=vals_to_check, back_up=True, escaped=True):
                     # esto por si el csv contiene elementos de distintas clases
                     if entry[1] == str(self.object.__class__):
                         return "presente"
-            else:
-                vals_to_check = " ".join([f"{str(key).strip('_')}={val}" for 
+            elif self.single:
+                vals_to_check = " | ".join([f'"{str(key).strip("_")}" = {val}' for 
                                           key, val in self.object.__dict__.items() if str(key).strip("_") in enforce_unique])
                 skip_first = self.leer_datos_csv(search=vals_to_check, back_up=True)
                 next(skip_first)
@@ -356,7 +360,7 @@ class CsvClassSave:
         if self.exclude is not None:
             if self.exclude[0] == "!":
                 if not self.single:
-                    class_repr: str = ", ".join([f"{str(key).strip('_')}: {val}" for key, val in self.object.__dict__.items() if str(key).strip("_") in self.exclude])
+                    class_repr: str = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in self.object.__dict__.items() if str(key).strip("_") in self.exclude])
                 else:
                     class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.object.__dict__.items() if str(key).strip("_") in self.exclude]
                     if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
@@ -364,7 +368,7 @@ class CsvClassSave:
                                          f"con el mismo número de atributos y nombres que el actual {', '.join(self.new_head)}")
             else:
                 if not self.single:
-                    class_repr = ", ".join([f"{str(key).strip('_')}: {val}" for key, val in self.object.__dict__.items() if str(key).strip("_") not in self.exclude])
+                    class_repr = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in self.object.__dict__.items() if str(key).strip("_") not in self.exclude])
                 else:
                     class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.object.__dict__.items() if str(key).strip("_") not in self.exclude]
                     if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
@@ -372,7 +376,7 @@ class CsvClassSave:
                                          f"con el mismo número de atributos y nombres que el actual {', '.join(self.new_head)}")
         else:
             if not self.single:
-                class_repr = ", ".join([f"{str(key).strip('_')}: {val}" for key, val in self.object.__dict__.items()])
+                class_repr = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in self.object.__dict__.items()])
             else:
                 class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.object.__dict__.items()]
                 if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
@@ -388,11 +392,15 @@ class CsvClassSave:
                 else:
                     write.writerow([f"[{self.current_rows-1}]", *[val[1] for val in class_repr]])
         if not self.single:
+            if str(self.object.__class__) not in self.current_classes:
+                self.current_classes.append(str(self.object.__class__))
             return f"\n{f'{self.delimiter}'.join(self.header)}\n[{self.current_rows-1}]{self.delimiter}{self.object.__class__}{self.delimiter}{class_repr}"
         else:
             return f"\n{f'{self.delimiter}'.join([*self.new_head])}\n[{self.current_rows-1}]{self.delimiter}{f'{self.delimiter}'.join([val[1] for val in class_repr])}"
 
-    def borrar_datos(self, delete_index: str = "", rewrite: bool = False) -> str | list:
+    # only a generator just in case there are way to many items to delete
+    def borrar_datos(self, delete_index: str = "", rewrite: bool = False) -> Generator[str, None, str]:
+        """metodo borrar_datos"""
         if delete_index == "borrar todo":
             if rewrite:
                 with open(self.file_path, "w", newline="", encoding="utf-8") as _:
@@ -401,88 +409,104 @@ class CsvClassSave:
                     filter_ = csv.writer(write_filter, delimiter=self.delimiter)
                     for entry in self.leer_datos_csv(back_up=True):
                         filter_.writerow(entry)
-                return "rewrite"
+                yield "rewrite"
+                # return only produces a 
+                # StopIterationError if you
+                # use next after there are no more items
+                # the value in the return is the message
+                # passed to the error
+                return "reescritura completa"
             if self.current_rows <= 1:
-                return "nada"
+                yield "nada"
+                return "no hay datos para borrar"
             for files in self.accepted_files:
                 with open(files, "w", newline="", encoding="utf-8") as _:
                     pass
             self.current_rows = 0
-            return "todo"
+            yield "todo"
+            return "todos los items ya se borraron"
         else:
             if self.current_rows <= 1:
-                return "nada"
+                yield "nada"
+                return "no hay datos para borrar"
+            if not self.single and delete_index in self.current_classes:
+                yield f"{self.delimiter}".join(self.header if not self.single else [self.header[0], *self.new_head])
+                with open(self.file_path, "w", newline="", encoding="utf-8") as class_deleter:
+                    unclass = csv.writer(class_deleter, delimiter=self.delimiter)
+                    count: int = 1
+                    row_getter: Generator[list[str], None, None] = self.leer_datos_csv(back_up=True)
+                    unclass.writerow(next(row_getter))
+                    for item in row_getter:
+                        if item[1] != delete_index:
+                            item[0] = f"[{count}]"
+                            unclass.writerow(item)
+                            count += 1
+                        else:
+                            yield f"{self.delimiter}".join(val for val in item)
             # use regex to accpet multiple entries to delete
-            if isinstance(to_delete:= self.return_patern(delete_index), tuple):
+            elif isinstance(to_delete:= self.return_patern(delete_index), tuple):
                 # to get rid of things like 00 or 03, 056
                 operation: str | None = to_delete[0]
                 vars_to_delete: list = [num for num in to_delete[-1] if self.current_rows >= num >= 0]
                 if not vars_to_delete:
                     raise ValueError("ninguno de los valores ingresados corresponde al indice de alguna entrada")
+                yield f"{self.delimiter}".join(self.header if not self.single else [self.header[0], *self.new_head])
                 if operation == ":":
                     if len(vars_to_delete) == 1:
                         vars_to_delete.append(self.current_rows)
                     vars_to_delete.append("range")
                 else:
                     vars_to_delete = [f"[{num}]" for num in vars_to_delete]
+            
+                # copying all the data except entries to delete from backup file to main file
+                with open(self.file_path, "w", newline="", encoding="utf-8") as write_filter:
+                    filter_ = csv.writer(write_filter, delimiter=self.delimiter)
+                    count: int = 1
+                    mark: str = vars_to_delete[-1]
+                    row_generator: Generator[list[str], None, None] = self.leer_datos_csv(back_up=True)
+                    # to not count header
+                    filter_.writerow(next(row_generator))
+                    for entry in row_generator:
+                        if mark == "range":
+                            low_lim: int = vars_to_delete[0]
+                            up_lim: int = vars_to_delete[1]
+                            current = int(re.sub(r"[\[\]]", "", entry[0]))
+                            if current < low_lim or current > up_lim:
+                                entry[0] = f"[{count}]"
+                                filter_.writerow(entry)
+                                count += 1
+                            else:
+                                yield f"{self.delimiter}".join(val for val in entry)
+
+                        else:
+                            if entry[0] not in vars_to_delete:
+                                entry[0] = f"[{count}]"
+                                filter_.writerow(entry)
+                                count += 1
+                            else:
+                                yield f"{self.delimiter}".join(val for val in entry)     
             else:
                 raise ValueError("utilize uno de los siguientes formatos para borrar una entrada:\n"
-                                    "[n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice "
-                                    "de lo que desee eliminar ")
-            # copying all the data except entries to delete from backup file to main file
-            deleted_: list[str] = [f"{self.delimiter}".join(self.header if not self.single else [self.header[0], *self.new_head]),]
-            with open(self.file_path, "w", newline="", encoding="utf-8") as write_filter:
-                filter_ = csv.writer(write_filter, delimiter=self.delimiter)
-                count: int = 1
-                mark: str = vars_to_delete[-1]
-                row_generator: Generator[list[str], None, None] = self.leer_datos_csv(back_up=True)
-                # to not count header
-                filter_.writerow(next(row_generator))
-                for entry in row_generator:
-                    if mark == "range":
-                        low_lim: int = vars_to_delete[0]
-                        up_lim: int = vars_to_delete[1]
-                        current = int(re.sub(r"[\[\]]", "", entry[0]))
-                        if current < low_lim or current > up_lim:
-                            entry[0] = f"[{count}]"
-                            filter_.writerow(entry)
-                            count += 1
-                        else:
-                            deleted_.append(f"{self.delimiter}".join(val for val in entry))
-
-                    else:
-                        if entry[0] not in vars_to_delete:
-                            entry[0] = f"[{count}]"
-                            filter_.writerow(entry)
-                            count += 1
-                        else:
-                            deleted_.append(f"{self.delimiter}".join(val for val in entry))
+                                 "[n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice "
+                                 f"de lo que desee eliminar{'' if self.single else ' o introduciendo el nombre completo de una clase'}")
             # deleting all data on backup (is not up to date)
             # syncronizing backup
             # should I use asyncio?
+            count = 0
             with open(str(self.backup_multi if not self.single else self.backup_single), 
                       "w", newline="", encoding="utf-8") as write_filter:
                 filter_ = csv.writer(write_filter, delimiter=self.delimiter)
                 for entry in self.leer_datos_csv():
                     filter_.writerow(entry)
+                    count += 1
+            if not self.single:
+                self.current_classes.clear()
             self.current_rows = self.__len__()
-            return deleted_       
-
-    def export(self, destination, class_name) -> bool:
-        if self.single:
-            raise AttributeError("opcion de exportación no disponible en modo single = True")
-        if not isinstance(destination, str):
-            raise ValueError(f"el argumento destination debe ser de tipo str pero fue {type(destination).__name__}")
-        destination_route = Path(destination)
-        if not destination_route.is_file():
-            raise ValueError
-        if destination_route.suffix != ".csv":
-            raise ValueError 
 
     #static method
     @staticmethod
     def return_patern(str_pattern) -> tuple | None:
-        """ metodo estatico publico return patern
+        """ metodo estatico publico return_patern
         Argumento: 
         -str pattern el str en el cual se buscara el patron deseado
         este metodo especificamente sirve para saber si el usuario introduce el patron
@@ -508,9 +532,12 @@ class CsvClassSave:
     
 
     def __query_parser(self, string_pattern) -> list:
+        """ metodo privado query_parser"""
         if not self.single:
             raise AttributeError("opción de filtrado por selector logico no disponible en modo single = False")
-        operation_hash_table = {">=": lambda x, y : x >= y, "<=": lambda x, y : x >= y, 
+        if not isinstance(string_pattern, str):
+            raise ValueError(f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")
+        operation_hash_table = {">=": lambda x, y : x >= y, "<=": lambda x, y : x <= y, 
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
         query_regex: str = r'^"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+))?' for _ in range(0, 3)])+"$"
@@ -548,6 +575,60 @@ class CsvClassSave:
                         sub_queries.append(query)
             return sub_queries
         return []
+    
+    def export(self, destination, class_name) -> bool:
+        """ metodo export"""
+        if self.single:
+            raise AttributeError("operación no disponible en modo single = True")
+        if not self.current_rows:
+            return False
+        if isinstance(destination, str):
+            valid_path = Path(destination)
+            if not valid_path.is_file():
+                raise ValueError(f"el archivo de destino debe ser una ruta valida pero fue {valid_path}")
+            elif valid_path.suffix != ".csv":
+                raise ValueError(f"el archivo de destino debe ser de extension .csv pero fue {valid_path.suffix}")
+        else:
+            raise ValueError(f"el tipo para el argumento destination debe ser str pero fue {type(destination).__name__}")
+        if not isinstance(class_name, str):
+            raise ValueError(f"el tipo para el argumento class_name debe ser str pero fue {type(class_name).__name__}")
+        if class_name not in self.current_classes:
+            return False
+        lines_to_export: Generator[list[str], None, None] = self.leer_datos_csv(search=class_name, back_up=True)
+        # current headers
+        next(lines_to_export)
+        # take header from attribute
+        headers: str = next(lines_to_export)
+        head_names: list = re.findall(r"([^:,\s]+:)", headers[-1])
+        if head_names:
+            head_names = ["INDICE",] + [str(item).strip(":").upper() for item in head_names]
+        else:
+            # for whaterever reason head names coudn't be resolved
+            raise DataExportError(f"no fue posible enviar los datos debido a un error de formato en el encabezado  en: {headers}")
+        values: str = re.findall(r"([^:]+(?:,|$))", headers[-1])
+        if values:
+            values = ["[1]",] +  [str(val).strip(" ,") for val in values]
+        else:
+            raise DataExportError(f"no fue posible enviar los datos debido a un error de formato en los atributos en: {values}")
+        if len(values) != len(head_names):
+            raise DataExportError(f"la cantidad de atributos no corresponde a la cantidad de encabezados en {values} para {head_names}")
+        with open(destination, "w", newline="") as exporter:
+            data_export = csv.writer(exporter, delimiter=self.delimiter)
+            data_export.writerow(head_names)
+            data_export.writerow(values)
+            count = 2
+            for remain_lines in lines_to_export:
+                next_values: list = re.findall(r"([^:]+(?:,|$))", remain_lines[-1])
+                if next_values:
+                    next_values = [f"[{count}]",] + [str(attr).strip(" ,") for attr in next_values]
+                    count += 1
+                    if len(next_values) != len(head_names):
+                        raise DataExportError(f"la cantidad de atributos no corresponde a la cantidad de encabezados en {next_values} para {head_names}")
+                    else:
+                        data_export.writerow(next_values)
+                else:
+                    raise DataExportError(f"no fue posible enviar los datos debido a un error de formato en los atributos en: {next_values}")
+            return True
 
     def __len__(self) -> int:
         with open(str(self.backup_multi if not self.single else self.backup_single), 
@@ -556,5 +637,33 @@ class CsvClassSave:
             # clever method to get the len and avoid putting
             # all the contents of the file in memory
             # this 1 for _ in read is an iterator
+            count = 0
+            if not self.single and not self.current_classes:
+                for item in read:
+                    count += 1
+                    if item[1] not in self.current_classes:
+                        self.current_classes.append(item[1])
+                if count:
+                    self.current_classes = self.current_classes[1:]
+                return count
             return sum(1 for _ in read)
 
+
+class DataExportError(Exception):
+    def __init__(self, message) -> None:
+        self.message_error = message
+
+    def __str__(self) -> str:
+        return self.message_error
+    
+    @property
+    def message_error(self) -> str:
+        return self._message_error
+    
+    @message_error.setter
+    def message_error(self, value) -> None:
+        if isinstance (value, str):
+            self._message_error = value
+        else:
+            raise ValueError(f"el contenido del error debe ser str pero fue {type(value).__name__}")
+    
