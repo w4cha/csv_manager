@@ -7,6 +7,7 @@ from pathlib import Path
 
 # pequeño programa que permite crear, borrar y leer entradas hacia un archivo csv a
 # partir de los valores de una clase
+# modo single = True caracteres reservados | y & para búsquedas, en modo single = False : para exportar
 class CsvClassSave:
     """clase CsvClassSave una clase para guardar los atributos de instancia de
     distintas clases en archivos csv
@@ -234,8 +235,8 @@ class CsvClassSave:
                 read = csv.reader(csv_reader, delimiter=self.delimiter)
                 # usando generadores para evitar cargar todo el archivo a memoria
                 if search:
-                    yield next(read)
                     if isinstance (to_search:= self.return_pattern(search), tuple):
+                        yield next(read)
                         operation: str | None = to_search[0]
                         vals_to_search: list = [num for num in to_search[-1] if self.current_rows >= num >= 0]
                         if not vals_to_search:
@@ -266,6 +267,13 @@ class CsvClassSave:
                         if self.single:
                             list_of_match: list = self.__query_parser(search)
                             if list_of_match:
+                                except_col = ()
+                                if isinstance(list_of_match[0], tuple):
+                                    except_col = except_col + list_of_match.pop(0)
+                                    header = next(read)
+                                    yield [header[0]] + [header[val] for val in range(1, len(header)) if val not in except_col]
+                                else:
+                                    yield next(read)
                                 for row in read:
                                     bool_values: list = []
                                     for element in list_of_match:
@@ -286,7 +294,13 @@ class CsvClassSave:
                                             bool_values.append(element)
                                     if len(bool_values) == 1:
                                         if bool_values[0]:
-                                            yield row
+                                            if except_col:
+                                                yield [row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col]
+                                            else:
+                                                yield row
+                                    elif not bool_values:
+                                        yield "error de sintaxis"
+                                        return "sintaxis no valida búsqueda terminada"
                                     else:
                                          current_value = bool_values[0]     
                                          operation = "?"
@@ -301,7 +315,13 @@ class CsvClassSave:
                                                  elif operation == "&":
                                                      current_value = current_value and item
                                          if current_value:
-                                            yield row
+                                            if except_col:
+                                                yield [row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col]
+                                            else:
+                                                yield row
+                                return "búsqueda completa"    
+                        # for compatibility
+                        yield next(read)
                         for row in read:
                             if row and re.search(f"^.*{re.escape(search) if not escaped else search}.*$", "".join(row[1:]), re.IGNORECASE) is not None:
                                 yield row
@@ -626,10 +646,19 @@ class CsvClassSave:
         operation_hash_table = {">=": lambda x, y : x >= y, "<=": lambda x, y : x <= y, 
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
-        query_regex: str = r'^"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^><=\|&]+)" (>=|>|<=|<|=|!=) ([^&\|]+))?' for _ in range(0, 3)])+"$"
+        query_regex: str = r'^(?:!?\[([^\[\,\s><=\|&!"]+)*\] )?"([^><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])+"$"
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
+            exclude_group = []
+            for exclude in valid_tokens:
+                if exclude in ("<=", ">=", ">", "<", "=", "!="):
+                    exclude_group.pop()
+                    break
+                else:
+                    exclude_group.append(exclude)
+            if exclude_group:
+                valid_tokens.pop(0)
             contents: list = []
             sub_queries: list = []
             for count, token in enumerate(valid_tokens, 1):
@@ -659,6 +688,12 @@ class CsvClassSave:
                 else:
                     if next_token:
                         sub_queries.append(query)
+            if exclude_group:
+                exclude_group[0] = tuple((self.new_head.index(str(item).upper()) for item in exclude_group[0].split("#") if str(item).upper() in self.new_head))
+                if exclude_group[0]:
+                    if string_pattern[0] != "!":
+                        exclude_group[0] = tuple((val for val in range (1, len(self.new_head)) if val not in exclude_group[0]))
+                    sub_queries.insert(0, exclude_group[0])
             return sub_queries
         return []
     

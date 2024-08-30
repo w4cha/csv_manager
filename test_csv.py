@@ -273,8 +273,8 @@ class TestSingle:
                    '"size" > 0': [list(range(1,21)), 20], '"size" < 100': [list(range(1,21)), 20], '"size" > test': [[], 0],
                    '"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3],
                    '"difficulty" < 6800 & "difficulty" >= 5000 | "size" < 4 & "solving_time" != 4.047': [[20], 1],
-                   # you can chain only up to 4 operators
-                   '"size" > 4 & "difficulty" >= 6000 | "difficulty" < 7000 & "solving_time" != 4.047 & "size" < 20': [[], 0],
+                   # if you chain more than 4 the last ones get combined into one "solving_time" != (4.047 & "size" < 20)
+                   '"size" > 4 & "difficulty" >= 6000 & "difficulty" < 7000 & "solving_time" != 4.047 & "size" < 20': [[10, 20], 2],
                    # checking if old system is recognized
                    "size=16": [[], 0], "size=9~solving_time=0.0": [[], 0], 
                    "size=9~solving_time=0.0~difficulty=51": [[], 0], "size=9~solving_time=0.0 difficulty=51": [[], 0],
@@ -287,6 +287,40 @@ class TestSingle:
             collect_entries.pop(0)
             assert len(collect_entries) == value[1], f"fallo en cantidad encontrada: {query}"
             assert collect_entries == [f"[{val}]" for val in value[0]], f"fallo en buscar entrada: {query}"
+            head_1 = ["INDICE", "START", "END", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+            head_2 = ["INDICE", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+            head_3 = ["INDICE", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+            head_4 = ["INDICE", "START", "END"]
+            head_5 = ["INDICE", "START", "END", "START_VALS"]
+        special_query = {'"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         '![] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         '[] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         # space inside [] is not permitted
+                         '![size  ] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[], 0, 7, head_1],
+                         '![indice] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         '![start_] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         '![START#END] "size" > 4': [[2] + list(range(5,21)), 17, 5, head_2],
+                         '[START#END] "size" > 4': [[2] + list(range(5,21)), 17, 3, head_4],
+                         '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 5, head_2],
+                         '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 3, head_4],
+                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_3],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_5]
+                        }
+        for exclude_query, values in special_query.items():
+            collect_entries = []
+            new_query = single_test_instance.leer_datos_csv(exclude_query, back_up=True)
+            current_head = next(new_query)
+            for special_query in new_query:
+                collect_entries.append(special_query[0])
+            assert len(current_head) == values[2], f"fallo en igualdad de cantidad de columnas: {current_head}"
+            assert current_head == values[-1], f"fallo en igualdad de encabezado: {current_head}"
+            assert len(collect_entries) == values[1], f"fallo en cantidad encontrada: {exclude_query}"
+            assert collect_entries == [f"[{val}]" for val in values[0]], f"fallo en buscar entrada: {exclude_query}"
+        # se produce cuando ningún nombre de las columnas especificada coinciden después de la selección de columnas
+        syntax_error = single_test_instance.leer_datos_csv('[solving_time#difficulty#size] "dificulty" > 10 & "dificulty" < 100')
+        # header
+        next(syntax_error)
+        assert next(syntax_error) == "error de sintaxis"
  
     def test_single_delete(self):
             """comprueba que se borren las entradas especificadas, el comportamiento
