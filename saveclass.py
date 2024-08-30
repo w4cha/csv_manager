@@ -298,6 +298,9 @@ class CsvClassSave:
                                                 yield [row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col]
                                             else:
                                                 yield row
+                                    elif not bool_values:
+                                        yield "error de sintaxis"
+                                        return "sintaxis no valida búsqueda terminada"
                                     else:
                                          current_value = bool_values[0]     
                                          operation = "?"

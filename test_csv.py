@@ -316,6 +316,11 @@ class TestSingle:
             assert current_head == values[-1], f"fallo en igualdad de encabezado: {current_head}"
             assert len(collect_entries) == values[1], f"fallo en cantidad encontrada: {exclude_query}"
             assert collect_entries == [f"[{val}]" for val in values[0]], f"fallo en buscar entrada: {exclude_query}"
+        # se produce cuando ningún nombre de las columnas especificada coinciden después de la selección de columnas
+        syntax_error = single_test_instance.leer_datos_csv('[solving_time#difficulty#size] "dificulty" > 10 & "dificulty" < 100')
+        # header
+        next(syntax_error)
+        assert next(syntax_error) == "error de sintaxis"
  
     def test_single_delete(self):
             """comprueba que se borren las entradas especificadas, el comportamiento
