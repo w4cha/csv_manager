@@ -277,7 +277,17 @@ class CsvClassSave:
                                 function_match = []
                                 if list_of_match and isinstance(list_of_match[-1], str):
                                     operand, column, *_ = str(list_of_match.pop()).split(":")
-                                    if column and column.upper() in self.new_head:
+                                    if operand == "COUNT":
+                                        function_match.append(0)
+                                    elif operand == "LIMIT":
+                                        try:
+                                            limit_result = int(column)
+                                        except ValueError:
+                                            pass
+                                        else:
+                                            if limit_result > 0:
+                                                function_match += ["LIMIT", limit_result + 1]
+                                    elif column and column.upper() in self.new_head:
                                         col_index = self.new_head.index(str(column).upper())
                                         if not except_col or col_index not in except_col:
                                             if operand == "AVG":
@@ -287,9 +297,7 @@ class CsvClassSave:
                                             elif operand == "MAX":
                                                 function_match += [operand, float("-inf"), col_index]
                                             elif operand == "SUM":
-                                                function_match += [operand, 0, col_index]
-                                    if operand == "COUNT":
-                                        function_match.append(0)
+                                                function_match += [operand, 0, col_index]                                                                        
                                 for row in read:
                                     bool_values: list = []
                                     for element in list_of_match:
@@ -354,6 +362,10 @@ class CsvClassSave:
                                                         else: 
                                                             if num < function_match[1]:
                                                                 function_match[1] = num
+                                                    elif function_match[0] == "LIMIT":
+                                                        function_match[-1] -= 1
+                                                        if function_match[-1] == 0:
+                                                            return f"se alcanzo el limite de entradas requeridas LIMIT:{function_match[-1]}"
                                                     else:
                                                         function_match[0] += 1
                                                 except ValueError:
@@ -696,12 +708,12 @@ class CsvClassSave:
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
         query_regex: str = r'^(?:!?\[([^\[,\s><=\|&!"]+)*\] )?"([^,<=\|&!]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^,><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])
-        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT):(?:[^:,\s><=!\|&]+)*))?$'
+        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT):(?:[^:,\s><=!\|&]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
             function_group = []
-            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:")]):
+            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:", "LIMIT:")]):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
@@ -728,7 +740,12 @@ class CsvClassSave:
             for query in contents:
                 if isinstance(query, list):
                     if str(query[0]).upper() in self.new_head:
-                        sub_queries.append([str(query[0]).upper(), operation_hash_table[query[1]], query[2]])
+                        try:
+                            sub_queries.append([str(query[0]).upper(), operation_hash_table[query[1]], query[2]])
+                        # query has syntax error that produce 
+                        # operations like a > 2 to end like a >
+                        except IndexError:
+                            return []
                         if not next_token:
                             next_token = True
                     else:
