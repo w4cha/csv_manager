@@ -333,6 +333,8 @@ class TestSingle:
                               '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:size': [[5, 6, 20], 9, 5, head_2],
                               '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6, 20], 136087, 5, head_2],
                               '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6], "abg6|", 3, head_4],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:start': [[5, 6, 20], 0, 3, head_4],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:size': [[5, 6, 20], 41, 5, head_2],
                              }
         
         for functional_queries, numbers in functional_queries.items():
@@ -358,7 +360,6 @@ class TestSingle:
                 read_dates = csv.reader(date_read, delimiter="#")
                 for entry in read_dates:
                     date_writer.writerow(entry)
-        sleep(12)
         date_instance_test = CsvClassSave(str(data_test), None, True, "#")
         searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
                           '"date" < 06-11-2000': [[], 0], 
