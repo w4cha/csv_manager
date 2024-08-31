@@ -286,6 +286,8 @@ class CsvClassSave:
                                                 function_match += [operand, float("inf"), col_index]
                                             elif operand == "MAX":
                                                 function_match += [operand, float("-inf"), col_index]
+                                            elif operand == "SUM":
+                                                function_match += [operand, 0, col_index]
                                     if operand == "COUNT":
                                         function_match.append(0)
                                 for row in read:
@@ -347,6 +349,8 @@ class CsvClassSave:
                                                         if function_match[0] == "MAX":
                                                             if num > function_match[1]:
                                                                 function_match[1] = num
+                                                        elif function_match[0] == "SUM":
+                                                            function_match[1] += num
                                                         else: 
                                                             if num < function_match[1]:
                                                                 function_match[1] = num
@@ -692,12 +696,12 @@ class CsvClassSave:
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
         query_regex: str = r'^(?:!?\[([^\[,\s><=\|&!"]+)*\] )?"([^,<=\|&!]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^,><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])
-        query_regex += r'(?:~((?:AVG|MAX|MIN|COUNT):(?:[^:,\s><=!\|&]+)*))?$'
+        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT):(?:[^:,\s><=!\|&]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
             function_group = []
-            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:")]):
+            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:")]):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
