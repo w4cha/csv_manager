@@ -212,6 +212,7 @@ class TestSingle:
                 }
 
     case_data_single = Path(fr"{Path(__file__).parent}\data\data_single.csv")
+    case_time_data = Path(fr"{Path(__file__).parent}\data\times.csv")
 
     def test_static(self):
         """comprueba que el método estático retorne los resultados 
@@ -240,13 +241,15 @@ class TestSingle:
         a ambos modos)"""
         # this as a class variable gave a weird behavior
         # managing class state is painful in test
-        create_path_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
-        with open(str(create_path_instance.backup_single), "w", newline="", encoding="utf-8") as pass_data:
+        # to create backup directory
+        CsvClassSave(str(data_test), None, True, "#")
+        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as pass_data:
             data_writer = csv.writer(pass_data, delimiter="#")
             with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as has_data:
                 read = csv.reader(has_data, delimiter="#")
                 for line in read:
                     data_writer.writerow(line)
+        
         single_test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
         for invalid in (8, ["test"], False, {1, 7, 9}, {"test": "no valido"}):
             with pytest.raises(ValueError, match="argumento string_pattern debe ser str"):
@@ -295,6 +298,7 @@ class TestSingle:
         special_query = {'"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
                          '![] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
                          '[] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
+                         '[indice] "indice" <= 10': [list(range(1, 11)), 10, 1, ["INDICE",]],
                          # space inside [] is not permitted
                          '![size  ] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[], 0, 7, head_1],
                          '![indice] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
@@ -321,7 +325,62 @@ class TestSingle:
         # header
         next(syntax_error)
         assert next(syntax_error) == "error de sintaxis"
- 
+        functional_queries = {'![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:': [[5, 6, 20], 3, 5, head_2],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:difficulty': [[5, 6, 20], 3, 3, head_4],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:dificulty': [[5, 6, 20], 3, 3, head_4],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~AVG:difficulty': [[5, 6, 20], 80245, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:difficulty': [[5, 6, 20], 6715, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:size': [[5, 6, 20], 9, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6, 20], 136087, 5, head_2],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6], "abg6|", 3, head_4],
+                             }
+        
+        for functional_queries, numbers in functional_queries.items():
+            collect_functional = []
+            query_func = single_test_instance.leer_datos_csv(functional_queries, back_up=True)
+            func_head = next(query_func)
+            for func_result in query_func:
+                collect_functional.append(func_result)
+            last_item = collect_functional.pop()
+            collect_functional = [val[0] for val in collect_functional]
+            assert len(func_head) == numbers[2], f"fallo en igualdad de cantidad de columnas: {func_head}"
+            assert func_head == numbers[-1], f"fallo en igualdad de encabezado: {func_head}"
+            if isinstance(numbers[1], str):
+                assert last_item[1][0:5] == numbers[1], f"fallo en resultado para argumento función filtrado en columnas incluidas {numbers[1]}"
+            else:
+                assert int(last_item[-1]) == numbers[1], f"fallo en resultado función: {functional_queries}"
+            assert collect_functional == [f"[{val}]" for val in numbers[0]], f"fallo en buscar entrada: {functional_queries}"
+        # test date data on search and operations, accepted format is ISO8601
+        # repopulating with new data
+        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as date_data:
+            date_writer = csv.writer(date_data, delimiter="#")
+            with open(str(self.case_time_data), "r", newline="", encoding="utf-8") as date_read:
+                read_dates = csv.reader(date_read, delimiter="#")
+                for entry in read_dates:
+                    date_writer.writerow(entry)
+        sleep(12)
+        date_instance_test = CsvClassSave(str(data_test), None, True, "#")
+        searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
+                          '"date" < 06-11-2000': [[], 0], 
+                          '"DATE" = 2024-08-24': [[7], 1],
+                          '"DATE" != 2024-08-21': [list(range(1, 10)), 9],
+                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9], 2]
+                        }
+        for query_date, value_date in searching_test.items():
+            collect_entries = []
+            for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
+                collect_entries.append(dates[0])
+            collect_entries.pop(0)
+            assert len(collect_entries) == value_date[1], f"fallo en cantidad encontrada: {query_date}"
+            assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}" 
+        # putting data back on track
+        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
+            single_writer = csv.writer(back_single, delimiter="#")
+            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
+                singles = csv.reader(single_read, delimiter="#")
+                for single in singles:
+                    single_writer.writerow(single)
+        
     def test_single_delete(self):
             """comprueba que se borren las entradas especificadas, el comportamiento
             es igual independiente del modo (single (single=True) or multiple (single=False))"""
@@ -348,7 +407,7 @@ class TestSingle:
                 collect_deleted.pop(0)
                 assert test_instance.current_rows - 1 == value[1], f"fallo en cantidad borrada: {deleted}"
                 assert collect_deleted == [f"[{val}]" for val in value[0]], f"fallo en borrar entrada: {deleted}"
-
+            
             assert next(test_instance.borrar_datos("borrar todo")) == "todo"
             assert next(test_instance.borrar_datos("borrar todo")) == "nada"
             assert next(test_instance.borrar_datos("[1]")) == "nada"
@@ -378,7 +437,6 @@ class TestSingle:
         test_instance.current_rows = 13
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
         
-
     def test_not_matched_dict_object_single(self):
         """en el modo single no se pueden escribir nuevas entrada que no tengan los mismo nombres
         de atributos y cantidad de atributos que las entradas ya presentes aquí se chequea que
@@ -399,7 +457,6 @@ class TestSingle:
             # single True to False if this module is already being used for
             # on a mode it will only create bugs
             new_instance.guardar_datos_csv()
-
 
     def test_exclude_single(self):
         """comprueba que los atributos del objeto excluidos usando el
@@ -491,7 +548,6 @@ class TestMultiple:
             # access private method
             multi_test_instance._CsvClassSave__query_parser(string_pattern='"marca" = Ford & velocidad = 180')
 
-    
     def test_delete_multi(self):
         """comprueba que en modo multiple se pueda borrar entradas usando el nombre de una clase"""
         local_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
@@ -511,7 +567,6 @@ class TestMultiple:
                 read = csv.reader(has_data, delimiter="|")
                 for line in read:
                     data_writer.writerow(line)
-
 
     def test_not_matched_dict_object_multiple(self):
         """comprobando que en modo multiple se puedan guardar objetos con distinto
