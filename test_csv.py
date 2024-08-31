@@ -308,7 +308,15 @@ class TestSingle:
                          '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 5, head_2],
                          '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 3, head_4],
                          '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_3],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_5]
+                         # syntax error can only chain one function to a query
+                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:1:AVG:SIZE': [[], 0, 7, head_1],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_5],
+                         # those limit test are better formatted for this section
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:': [[5, 6, 20], 3, 4, head_5],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:START': [[5, 6, 20], 3, 4, head_5],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:0': [[5, 6, 20], 3, 4, head_5],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:-12': [[5, 6, 20], 3, 4, head_5],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:2': [[5, 6], 2, 4, head_5],
                         }
         for exclude_query, values in special_query.items():
             collect_entries = []
