@@ -395,17 +395,19 @@ class TestSingle:
             collect_entries.pop(0)
             assert len(collect_entries) == value_date[1], f"fallo en cantidad encontrada: {query_date}"
             assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}" 
-        # putting data back on track
-        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
-            single_writer = csv.writer(back_single, delimiter="#")
-            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
-                singles = csv.reader(single_read, delimiter="#")
-                for single in singles:
-                    single_writer.writerow(single)
+        
         
     def test_single_delete(self):
             """comprueba que se borren las entradas especificadas, el comportamiento
             es igual independiente del modo (single (single=True) or multiple (single=False))"""
+            # clean up the data always before an assert
+            # putting data back on track
+            with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
+                single_writer = csv.writer(back_single, delimiter="#")
+                with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
+                    singles = csv.reader(single_read, delimiter="#")
+                    for single in singles:
+                        single_writer.writerow(single)
             test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
             invalid_delete = ["hola", "size=9", "[:12]", "[1-12-14-15-6-7-9-10-11-2-14]", "[10-]", "<class 'vehiculo.Bicicleta'>"]
             for query in invalid_delete:
@@ -433,16 +435,17 @@ class TestSingle:
             assert next(test_instance.borrar_datos("borrar todo")) == "todo"
             assert next(test_instance.borrar_datos("borrar todo")) == "nada"
             assert next(test_instance.borrar_datos("[1]")) == "nada"
-            with open(str(test_instance.backup_single), "w", newline="", encoding="utf-8") as pass_data:
-                data_writer = csv.writer(pass_data, delimiter="#")
-                with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as has_data:
-                    read = csv.reader(has_data, delimiter="#")
-                    for line in read:
-                        data_writer.writerow(line)
 
     def test_pass_object_no_dict(self):
         """chequea que se de una advertencia si se intenta guardar un objeto que no
         soporte __dict__ ya que es lo que se usa para guardar los atributos"""
+        # data restoration before the next test is run
+        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as pass_data:
+            data_writer = csv.writer(pass_data, delimiter="#")
+            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as has_data:
+                read = csv.reader(has_data, delimiter="#")
+                for line in read:
+                    data_writer.writerow(line)
         assert "Actualmente esta ocupando un objeto de tipo" in CsvClassSave(str(self.case_data_single), single=True, col_sep="#").guardar_datos_csv()
 
     def test_max_row_zero(self):
@@ -495,9 +498,6 @@ class TestSingle:
         # no calza al negar exclude con los de las entradas ya escritas
         with pytest.raises(ValueError, match="en modo single = True"):
             local_instance.guardar_datos_csv()
-        # you must iterate over it to delete all the entries
-        for _ in local_instance.borrar_datos("[21:]"):
-            pass
 
     def test_enforce_single(self):
         """comprueba que se pasen los argumentos apropiados al método guardar_datos_csv
@@ -505,6 +505,9 @@ class TestSingle:
         comprobar que solo se puedan escribir nuevas entradas con valores únicos para los
         campos pasados al argumento enforce_unique"""
         local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#", exclude=("other",))
+        # cleaning data always before the next assert
+        for _ in local_instance.borrar_datos("[21:]"):
+            pass
         for cases, message in {12: "debe ser una tuple", (): "al menos un str", 
                                (True,): "solo debe contener str", ("size", 12): "solo debe contener str"}.items():
             with pytest.raises(ValueError, match=message):
@@ -584,12 +587,6 @@ class TestMultiple:
         assert deleted_entries == ["[1]", "[9]"]
         assert local_instance.current_classes == ["<class 'vehiculo.Carga'>", "<class 'vehiculo.Bicicleta'>", 
                                                   "<class 'vehiculo.Motocicleta'>", "<class 'vehiculo.Automovil'>"]
-        with open(str(local_instance.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
-            data_writer = csv.writer(pass_data, delimiter="|")
-            with open(str(self.case_data_multiple), "r", newline="", encoding="utf-8") as has_data:
-                read = csv.reader(has_data, delimiter="|")
-                for line in read:
-                    data_writer.writerow(line)
 
     def test_not_matched_dict_object_multiple(self):
         """comprobando que en modo multiple se puedan guardar objetos con distinto
@@ -597,19 +594,26 @@ class TestMultiple:
         diferencia del modo single donde solo un tipo de objetos de igual numero y nombre 
         de atributos se debe guardar)
         """
+        # restoring last test data changes
+        with open(str(CsvClassSave.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
+            data_writer = csv.writer(pass_data, delimiter="|")
+            with open(str(self.case_data_multiple), "r", newline="", encoding="utf-8") as has_data:
+                read = csv.reader(has_data, delimiter="|")
+                for line in read:
+                    data_writer.writerow(line)
         local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
         has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                     "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero, comentario: estoy tranquilo")
         assert local_instance.guardar_datos_csv() == has_to_be
-        for _ in local_instance.borrar_datos("[12]"):
-            pass
 
     def test_exclude_multiple(self):
         """comprueba que los atributos del objeto excluidos usando el
         atributo exclude sean excluidos al escribir una nueva entrada en modo
         multiple ya que hay diferencias en el código usado para hacerlo dependiendo del modo"""
         local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|", exclude=("comentario",))
+        for _ in local_instance.borrar_datos("[12]"):
+            pass
         has_to_be_1 = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                     "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero")
@@ -623,13 +627,13 @@ class TestMultiple:
                        "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                        "edad: 40, comentario: estoy tranquilo")
         assert local_instance.guardar_datos_csv() == has_to_be_3
-        for _ in local_instance.borrar_datos("[12:]"):
-            pass
  
     def test_enforce_multiple(self):
         """comprueba el funcionamiento del argumento enforce_unique
         del método guardar_datos_csv en modo multiple"""
         local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
+        for _ in local_instance.borrar_datos("[12:]"):
+            pass
         local_instance.guardar_datos_csv()
         assert local_instance.guardar_datos_csv(enforce_unique=("comentario",)) == "presente"
         local_argument = {"nombre": "Mark mayz",
@@ -644,8 +648,6 @@ class TestMultiple:
                     "nombre: Mark mayz, edad: 40, nacimiento: 1984, estado: casado, comentario: nada")
         # all enforce unique fields have to be present for the filter to work
         assert new_local_instance.guardar_datos_csv(enforce_unique=("estado", "nombre", "nacimiento")) == has_to_be
-        for _ in local_instance.borrar_datos("[12:]"):
-            pass
         
     def test_remove_invalid_char(self):
         """comprueba la correcta eliminación y remplazo del carácter : (modo single = False solamente)
@@ -657,6 +659,8 @@ class TestMultiple:
                          "estado": "ca:sado:", 
                          "comentario": "::nada de lo que esta aquí me gustaría decirlo, asi que adios: me despido"}
         new_local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**local_argument), False, col_sep="|")
+        for _ in new_local_instance.borrar_datos("[12:]"):
+            pass
         expected_str = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
                         "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                         "nombre: Mark ; mayz, edad: 40, nacimiento: 1984, estado: ca;sado;, "
@@ -665,15 +669,13 @@ class TestMultiple:
                         "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                         "nombre: Mark ; mayz, nacimiento: 1984, estado: ca;sado;, "
                         "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
-        expected_str_3 = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
+        expected_str_3 = ("\nINDICE|CLASE|ATRIBUTOS\n[14]|"
                         "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                         "nombre: Mark ; mayz, nacimiento: 1960, estado: ca;sado;, "
                         "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
         assert new_local_instance.guardar_datos_csv() == expected_str
         new_local_instance.exclude = ("edad",)
         assert new_local_instance.guardar_datos_csv() == expected_str_2
-        for _ in new_local_instance.borrar_datos("[13]"):
-            pass
         # enforce unique comes before exclude
         local_argument["nacimiento"] = 1960
         new_local_instance.object = self.MultiObjectTest(**local_argument)
@@ -685,6 +687,8 @@ class TestMultiple:
         conjunto de clases"""
         destination = Path(fr"{Path(__file__).parent}\data\export_destination.csv")
         new_local_instance = CsvClassSave(str(data_test), None, False, col_sep="|")
+        for _ in new_local_instance.borrar_datos("[14]"):
+            pass
         incorrect_args = [((fr"{destination.parent}\destino.csv", "vehiculo"),"de destino debe ser una ruta valida"), 
                           ((fr"{data_test.parent}\file_test.txt", "vehiculo"), "debe ser de extension .csv"), 
                           ((12, "<class 'vehiculo.Automovil'>"), "el argumento destination debe ser str"),
