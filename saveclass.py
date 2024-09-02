@@ -44,7 +44,7 @@ class CsvClassSave:
     # limite máximo de filas por archivo csv es más para no terminar con un programa
     # muy lento por la gran cantidad de filas y lo poco optimizado que es la búsqueda y borrado
     # de entradas en un csv en comparación con algo como una base de datos
-    max_row_limit: int = 10_000
+    max_row_limit: int = 20_000
 
     # since we only save a class or object info and everything
     # in python is an object we use type any for object
@@ -107,7 +107,7 @@ class CsvClassSave:
         # csv file
         if self.single:
             if self.current_rows:
-                self.new_head = tuple((val for val in next(self.leer_datos_csv(back_up=True))))
+                self.new_head = tuple((val.upper() for val in next(self.leer_datos_csv(back_up=True))))
 
     @property
     def file_path(self) -> str:
@@ -278,7 +278,7 @@ class CsvClassSave:
                                 if list_of_match and isinstance(list_of_match[-1], str):
                                     operand, column, *_ = str(list_of_match.pop()).split(":")
                                     if operand == "COUNT":
-                                        function_match.append(0)
+                                        function_match += ["COUNT", 0]
                                     elif operand == "LIMIT":
                                         try:
                                             limit_result = int(column)
@@ -297,7 +297,10 @@ class CsvClassSave:
                                             elif operand == "MAX":
                                                 function_match += [operand, float("-inf"), col_index]
                                             elif operand == "SUM":
-                                                function_match += [operand, 0, col_index]                                                                        
+                                                function_match += [operand, 0, col_index]
+                                            elif operand == "ASC" or operand == "DESC":
+                                                header_offset = sum((1 for item in except_col if item < col_index))
+                                                function_match += [operand, [], col_index - header_offset, col_index]                                                                        
                                 for row in read:
                                     bool_values: list = []
                                     for element in list_of_match:
@@ -348,39 +351,63 @@ class CsvClassSave:
                                                         current_value = current_value and item
                                          if current_value:
                                             if function_match:
-                                                try:
-                                                    if len(function_match) == 4:
-                                                        function_match[1] += float(row[function_match[-1]])
-                                                        function_match[2] += 1
-                                                    elif len(function_match) == 3:
-                                                        num = float(row[function_match[-1]])
-                                                        if function_match[0] == "MAX":
-                                                            if num > function_match[1]:
-                                                                function_match[1] = num
-                                                        elif function_match[0] == "SUM":
-                                                            function_match[1] += num
-                                                        else: 
-                                                            if num < function_match[1]:
-                                                                function_match[1] = num
-                                                    elif function_match[0] == "LIMIT":
-                                                        function_match[-1] -= 1
-                                                        if function_match[-1] == 0:
-                                                            return f"se alcanzo el limite de entradas requeridas LIMIT:{function_match[-1]}"
-                                                    else:
-                                                        function_match[0] += 1
-                                                except ValueError:
-                                                    pass
+                                                if function_match[0] == "LIMIT":
+                                                    function_match[-1] -= 1
+                                                    if function_match[-1] == 0:
+                                                        return f"se alcanzo el limite de entradas requeridas LIMIT:{function_match[-1]}"
+                                                elif function_match[0] == "COUNT":
+                                                    function_match[-1] += 1
+                                                else:
+                                                    function_val = row[function_match[-1]]
+                                                    for is_type in (float, date.fromisoformat):
+                                                        try: 
+                                                            val_type = is_type(function_val)
+                                                        except ValueError:
+                                                            pass
+                                                        else:
+                                                            if function_match[0] == "AVG" and isinstance(val_type, float):
+                                                                function_match[1] += val_type
+                                                                function_match[2] += 1
+                                                            elif function_match[0] in ("ASC", "DESC"):
+                                                                row[function_match[-1]] = val_type
+                                                                if except_col:
+                                                                    function_match[1].append([row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col])
+                                                                else:
+                                                                    function_match[1].append(row)
+                                                            elif function_match[0] == "MAX":
+                                                                if function_match[1] == float("-inf") and isinstance(val_type, date):
+                                                                    function_match[1] = val_type
+                                                                else:
+                                                                    if val_type > function_match[1]:
+                                                                        function_match[1] = val_type
+                                                            elif function_match[0] == "MIN":
+                                                                if function_match[1] == float("inf") and isinstance(val_type, date):
+                                                                    function_match[1] = val_type
+                                                                else:
+                                                                    if val_type < function_match[1]:
+                                                                        function_match[1] = val_type
+                                                            elif function_match[0] == "SUM" and isinstance(val_type, float):
+                                                                function_match[1] += val_type
+                                                            break
+                                                if function_match[0] != "LIMIT":
+                                                    continue   
                                             if except_col:
                                                 yield [row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col]
                                             else:
                                                 yield row
                                 if function_match:
                                     if len(function_match) == 4:
-                                        yield ["AVG", self.new_head[function_match[-1]], function_match[1]/function_match[2]]
-                                    elif len(function_match) == 3:
+                                        if function_match[0] not in ("ASC", "DESC"):
+                                            yield ["AVG", self.new_head[function_match[-1]], function_match[1]/function_match[2] if function_match[2] else 0]
+                                        else:
+                                            function_match[1].sort(key=lambda x: x[function_match[2]], reverse=True if function_match[0] == "DESC" else False)
+                                            for sorted_item in function_match[1]:
+                                                yield sorted_item
+                                    elif len(function_match) == 3: 
                                         yield [function_match[0], self.new_head[function_match[-1]], function_match[1]]
-                                    else:
-                                        yield ["COUNT", function_match[0]]
+                                    # LIMIT might be able to get to here in is set bigger than the total amount of entries on a search
+                                    elif function_match[0] == "COUNT":
+                                        yield ["COUNT", function_match[-1]]
                                 return "búsqueda completa"    
                         # for compatibility
                         yield next(read)
@@ -421,7 +448,7 @@ class CsvClassSave:
                     "el cual no posee un __dict__ por lo que es imposible guardar entradas con él")
         # self.current_rows can't be less than zero so even if self.max_row_limit
         # is negative (truthy) the firs condition still checks
-        if self.current_rows >= self.max_row_limit or not self.max_row_limit:
+        if self.current_rows - 1 >= self.max_row_limit or not self.max_row_limit:
             return ("\nAdvertencia: Su entrada no fue creada ya que para mantener la eficiencia de este programa "
                    f"recomendamos\nlimitar el numero de entrada a {self.max_row_limit - 3_000} "
                    f"favor de ir a\n{self.file_path}\nhacer una, copia reiniciar el programa y\n"
@@ -708,12 +735,12 @@ class CsvClassSave:
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
         query_regex: str = r'^(?:!?\[([^\[,\s><=\|&!"]+)*\] )?"([^,<=\|&!]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^,><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])
-        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT):(?:[^:,\s><=!\|&]+)*))?$'
+        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC):(?:[^:,\s><=!\|&]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
             function_group = []
-            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:", "LIMIT:")]):
+            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:", "LIMIT:", "ASC:", "DESC:")]):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:

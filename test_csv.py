@@ -315,8 +315,12 @@ class TestSingle:
                          '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:': [[5, 6, 20], 3, 4, head_5],
                          '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:START': [[5, 6, 20], 3, 4, head_5],
                          '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:0': [[5, 6, 20], 3, 4, head_5],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:-12': [[5, 6, 20], 3, 4, head_5],
+                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:-12': [[5, 6, 20], 3, 4, head_3],
+                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:12': [[5, 6, 20], 3, 4, head_3],
                          '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:2': [[5, 6], 2, 4, head_5],
+                         '[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~ASC:difficulty': [[5, 6, 20], 3, 4, head_5],
+                         '[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~ASC:start_vals': [[6, 20, 5], 3, 4, head_5],
+                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~DESC:start_vals': [[5, 20, 6], 3, 4, head_5],
                         }
         for exclude_query, values in special_query.items():
             collect_entries = []
@@ -333,16 +337,17 @@ class TestSingle:
         # header
         next(syntax_error)
         assert next(syntax_error) == "error de sintaxis"
-        functional_queries = {'![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:': [[5, 6, 20], 3, 5, head_2],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:difficulty': [[5, 6, 20], 3, 3, head_4],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:dificulty': [[5, 6, 20], 3, 3, head_4],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~AVG:difficulty': [[5, 6, 20], 80245, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:difficulty': [[5, 6, 20], 6715, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:size': [[5, 6, 20], 9, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6, 20], 136087, 5, head_2],
+        # all of this needs refeactoring
+        functional_queries = {'![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:': [[], 3, 5, head_2],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:difficulty': [[], 3, 3, head_4],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:dificulty': [[], 3, 3, head_4],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~AVG:difficulty': [[], 80245, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:difficulty': [[], 6715, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:size': [[], 9, 5, head_2],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[], 136087, 5, head_2],
                               '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6], "abg6|", 3, head_4],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:start': [[5, 6, 20], 0, 3, head_4],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:size': [[5, 6, 20], 41, 5, head_2],
+                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:start': [[], 0, 3, head_4],
+                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:size': [[], 41, 5, head_2],
                              }
         
         for functional_queries, numbers in functional_queries.items():
@@ -373,12 +378,20 @@ class TestSingle:
                           '"date" < 06-11-2000': [[], 0], 
                           '"DATE" = 2024-08-24': [[7], 1],
                           '"DATE" != 2024-08-21': [list(range(1, 10)), 9],
-                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9], 2]
+                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9], 2],
+                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24~AVG:date': [[0], 1],
+                          '"DATE" <= 2024-08-20~MAX:date': [["2024-08-20"], 1],
+                          '"DATE" <= 2024-08-20~MIN:date': [["1994-08-26"], 1],
+                          '"DATE" <= 2024-08-20~DESC:date': [[1, 8, 5], 3],
+                          '"DATE" <= 2024-08-20~ASC:date': [[5, 8, 1], 3],
                         }
         for query_date, value_date in searching_test.items():
             collect_entries = []
             for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
-                collect_entries.append(dates[0])
+                if dates[0] not in ("AVG", "MAX", "MIN"):
+                    collect_entries.append(dates[0])
+                else:
+                    collect_entries.append(f"[{dates[-1]}]")
             collect_entries.pop(0)
             assert len(collect_entries) == value_date[1], f"fallo en cantidad encontrada: {query_date}"
             assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}" 
@@ -443,7 +456,8 @@ class TestSingle:
         test_instance.max_row_limit = 0
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
         test_instance.max_row_limit = 13
-        test_instance.current_rows = 13
+        # plus one to not count header
+        test_instance.current_rows = 14
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
         
     def test_not_matched_dict_object_single(self):
