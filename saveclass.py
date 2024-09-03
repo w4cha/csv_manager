@@ -35,6 +35,9 @@ class CsvClassSave:
     que contenga solo str, para negar la tuple o en otras palabras que envés de que la misma 
     se ejecute incluyendo solo los atributos en ella se debe pasar como primer elemento
     de la misma el str '!'
+    - check_hash: da la opción para desactivar ella creación y comparación de hashes para determinar
+    si el archivo esta sincronizado con el backup, su default es True, el comportamiento puede ser
+    inesperado si se decide poner como False y algún archivo sufre modificaciones
     """
     # archivo backup de la ruta del csv pasado a esta clase, sirve de respaldo
     # de la misma y también para habilitar la opción de eliminar entradas del csv
@@ -49,8 +52,8 @@ class CsvClassSave:
     # since we only save a class or object info and everything
     # in python is an object we use type any for object
     def __init__(self, path_file: str, object: Any = None,  single: bool = False, col_sep: str = "|", 
-                 header: tuple[str, str, str] = ("INDICE", "CLASE", "ATRIBUTOS"), 
-                 exclude: None | tuple = None) -> None:
+                 header: tuple[str, str, str] = ("INDICE", "CLASE", "ATRIBUTOS"), exclude: None | tuple = None,
+                 check_hash = True) -> None:
         self.file_path = path_file
         self.object = object
         self.single = single
@@ -58,6 +61,7 @@ class CsvClassSave:
         self.header = header
         self.exclude = exclude
         self.can_save = True
+        self.hashing = check_hash
         if "__dict__" not in dir(self.object):
             self.can_save = False
         self.accepted_files: tuple[str, str] = (self.file_path, str(self.backup_multi if not self.single else self.backup_single))
@@ -74,37 +78,42 @@ class CsvClassSave:
         # se verifica que el backup y el archivo principal tengan el mismo contenido
         # a la hora de ejecutar el programa mediante la comparación de un hash de
         # ambos archivos y son distintos el backup sobre escribe al archivo principal
-        hash_list: list[str] = []
-        for csv_file in self.accepted_files:
-            # all of this can be done way cleaner
-            # using file_digest from hashlib
-            # but is only supported on newer python versions
-            # hash algorithm
-            hash_: hashlib._Hash  = hashlib.sha256()
-            # buffer size
-            buffer_size  = bytearray(128*1024)
-            # creates a binary view from a file of size buffer_size
-            buffer_view = memoryview(buffer_size)
-            with open(csv_file, 'rb', buffering=0) as file_hash:
-                for chunk_ in iter(lambda : file_hash.readinto(buffer_view), 0):
-                    hash_.update(buffer_view[:chunk_])
-            hash_hex: str = hash_.hexdigest()
-            if hash_hex not in hash_list:
-                hash_list.append(hash_hex)
+        if self.hashing:
+            hash_list: list[str] = []
+            for csv_file in self.accepted_files:
+                # all of this can be done way cleaner
+                # using file_digest from hashlib
+                # but is only supported on newer python versions
+                # hash algorithm
+                hash_: hashlib._Hash  = hashlib.sha256()
+                # buffer size
+                buffer_size  = bytearray(128*1024)
+                # creates a binary view from a file of size buffer_size
+                buffer_view = memoryview(buffer_size)
+                with open(csv_file, 'rb', buffering=0) as file_hash:
+                    for chunk_ in iter(lambda : file_hash.readinto(buffer_view), 0):
+                        hash_.update(buffer_view[:chunk_])
+                hash_hex: str = hash_.hexdigest()
+                if hash_hex not in hash_list:
+                    hash_list.append(hash_hex)
 
-        # we give priority to the backup the user
-        # shouldn't change the file manually
-        if not self.single:
-            self.current_classes: list = []
-        self.current_rows: int = self.__len__()
-        if len(hash_list) == 2:
-            # like this for the code to execute
-            next(self.borrar_datos(delete_index="borrar todo", rewrite=True))
+            # we give priority to the backup the user
+            # shouldn't change the file manually
+            if not self.single:
+                self.current_classes: list = []
+            self.current_rows: int = self.__len__()
+            if len(hash_list) == 2:
+                # like this for the code to execute
+                next(self.borrar_datos(delete_index="borrar todo", rewrite=True))
         # si el archivo tiene más filas que el limite fijado
         # entonces el usuario no puede escribir nuevas entradas
         # our backup must be wipe out and rebuild every time the 
         # program runs to support writing to more than one fixed
         # csv file
+        else:
+            if not self.single:
+                self.current_classes: list = []
+            self.current_rows = self.__len__()
         if self.single:
             if self.current_rows:
                 self.new_head = tuple((val.upper() for val in next(self.leer_datos_csv(back_up=True))))
@@ -198,7 +207,18 @@ class CsvClassSave:
                 raise ValueError(f"todos los valores de la tuple deben ser str y su tuple tubo {', '.join([str(type(item).__name__) for item in value])}")
         else:
             raise ValueError(f"el valor debe ser una tuple o None pero fue {type(value).__name__}")
+        
+    @property
+    def hashing(self) -> bool:
+        return self._hashing
 
+    @hashing.setter
+    def hashing(self, value) -> None:
+        if isinstance(value, bool):
+            self._hashing = value
+        else:
+            raise ValueError(f"el valor debe ser bool pero fue {type(value).__name__}")
+    
     # a generator can have 3 types of value the type of the
     # yield value (first value), the type of the return value (third value, an exhausted iterator 
     # raises an StopIteration error and the value of it is the value of the return)
@@ -298,6 +318,8 @@ class CsvClassSave:
                                                 function_match += [operand, float("-inf"), col_index]
                                             elif operand == "SUM":
                                                 function_match += [operand, 0, col_index]
+                                            elif operand == "UNIQUE":
+                                                function_match += [operand, set(), col_index]
                                             elif operand == "ASC" or operand == "DESC":
                                                 header_offset = sum((1 for item in except_col if item < col_index))
                                                 function_match += [operand, [], col_index - header_offset, col_index]                                                                        
@@ -305,7 +327,10 @@ class CsvClassSave:
                                     bool_values: list = []
                                     for element in list_of_match:
                                         if isinstance(element, list):
-                                            head_index = self.new_head.index(element[0])
+                                            try:
+                                                head_index = self.new_head.index(element[0])
+                                            except IndexError:
+                                                return "error de sintaxis"
                                             # so you can search from index to
                                             if head_index > 0:
                                                 val = row[head_index]
@@ -359,7 +384,7 @@ class CsvClassSave:
                                                     function_match[-1] += 1
                                                 else:
                                                     function_val = row[function_match[-1]]
-                                                    for is_type in (float, date.fromisoformat):
+                                                    for is_type in (float, date.fromisoformat, str):
                                                         try: 
                                                             val_type = is_type(function_val)
                                                         except ValueError:
@@ -374,8 +399,17 @@ class CsvClassSave:
                                                                     function_match[1].append([row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col])
                                                                 else:
                                                                     function_match[1].append(row)
+                                                            elif function_match[0] in ("UNIQUE", "PRESENT"):
+                                                                before_len = len(function_match[1])
+                                                                function_match[1].add(function_val)
+                                                                if before_len != len(function_match[1]):
+                                                                    function_match[0] = "UNIQUE"
+                                                                else:
+                                                                    function_match[0] = "PRESENT"
                                                             elif function_match[0] == "MAX":
                                                                 if function_match[1] == float("-inf") and isinstance(val_type, date):
+                                                                    function_match[1] = val_type
+                                                                elif function_match[1] == float("-inf") and isinstance(val_type, str):
                                                                     function_match[1] = val_type
                                                                 else:
                                                                     if val_type > function_match[1]:
@@ -383,13 +417,15 @@ class CsvClassSave:
                                                             elif function_match[0] == "MIN":
                                                                 if function_match[1] == float("inf") and isinstance(val_type, date):
                                                                     function_match[1] = val_type
+                                                                elif function_match[1] == float("inf") and isinstance(val_type, str):
+                                                                    function_match[1] = val_type
                                                                 else:
                                                                     if val_type < function_match[1]:
                                                                         function_match[1] = val_type
                                                             elif function_match[0] == "SUM" and isinstance(val_type, float):
                                                                 function_match[1] += val_type
                                                             break
-                                                if function_match[0] != "LIMIT":
+                                                if function_match[0] not in ("LIMIT", "UNIQUE"):
                                                     continue   
                                             if except_col:
                                                 yield [row[0]] + [row[item] for item in range(1, len(row)) if item not in except_col]
@@ -403,8 +439,11 @@ class CsvClassSave:
                                             function_match[1].sort(key=lambda x: x[function_match[2]], reverse=True if function_match[0] == "DESC" else False)
                                             for sorted_item in function_match[1]:
                                                 yield sorted_item
-                                    elif len(function_match) == 3: 
-                                        yield [function_match[0], self.new_head[function_match[-1]], function_match[1]]
+                                    elif len(function_match) == 3:
+                                        if function_match[0] not in ("UNIQUE", "PRESENT"): 
+                                            yield [function_match[0], self.new_head[function_match[-1]], function_match[1]]
+                                        else:
+                                            yield ["UNIQUE", self.new_head[function_match[-1]], len(function_match[1])]
                                     # LIMIT might be able to get to here in is set bigger than the total amount of entries on a search
                                     elif function_match[0] == "COUNT":
                                         yield ["COUNT", function_match[-1]]
@@ -734,13 +773,13 @@ class CsvClassSave:
         operation_hash_table = {">=": lambda x, y : x >= y, "<=": lambda x, y : x <= y, 
                                 "<": lambda x, y : x < y, ">": lambda x, y : x > y,
                                 "=": lambda x, y: x == y, "!=": lambda x, y : x != y}
-        query_regex: str = r'^(?:!?\[([^\[,\s><=\|&!"]+)*\] )?"([^,<=\|&!]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^,><=\|&!]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])
-        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC):(?:[^:,\s><=!\|&]+)*))?$'
+        query_regex: str = r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?]+)" (>=|>|<=|<|=|!=) (.+?)'+r"(?: (\||&) "+r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?]+)" (>=|>|<=|<|=|!=) (.+?))?' for _ in range(0, 3)])
+        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
             function_group = []
-            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:", "LIMIT:", "ASC:", "DESC:")]):
+            if any([val in valid_tokens[-1] for val in ("AVG:", "MAX:", "MIN:", "COUNT:", "SUM:", "LIMIT:", "ASC:", "DESC:", "UNIQUE:")]):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
@@ -765,7 +804,7 @@ class CsvClassSave:
             sub_queries.clear()
             next_token: bool = True
             for query in contents:
-                if isinstance(query, list):
+                if isinstance(query, list) and query:
                     if str(query[0]).upper() in self.new_head:
                         try:
                             sub_queries.append([str(query[0]).upper(), operation_hash_table[query[1]], query[2]])
@@ -870,6 +909,56 @@ class CsvClassSave:
                 else:
                     raise DataExportError(f"no fue posible enviar los datos debido a un error de formato en los atributos en: {next_values}")
             return True
+
+    @classmethod
+    def index(cls, file_path, delimiter, id_present = True) -> None:
+        """ método de clase index
+        permite agregar indices con el formato de este programa y 
+        limpiar los encabezados par que puedan ser utilizados, siempre
+        asume que el archivo tendrán un encabezado de otra forma los
+        resultados serán inesperados, una ves reescrito el archivo este
+        sera copiado al backup_single del programa, idealmente solo para
+        leer archivos csv que no sean generados a base de clases de python,
+        para escribir nuevos datos a este tipo de archivos se debe crear una
+        clase la cual sirva de intermediario para ingresarlos, los
+        caracteres reservados para encabezados son: ,><=|&!":+*-.'#/?, espacios en blanco,
+        etc. (cualquier carácter que no pueda ser usado como nombre de variable o atributo)
+
+        Argumentos:
+
+        - file_path: ruta valida del archivo a leer para dar formato valido
+        - delimiter: el delimitador del archivo csv actual
+        - id_present: bool el cual indica que si solo se debe reescribir los id o 
+        si hay que crearlos desde cero
+
+        Valor de retorno:
+
+        - None
+
+        Excepciones:
+
+        - ValueError si algún tipo de los argumentos ingresados no fue el correcto
+        """
+        if not isinstance(id_present, bool):
+            raise ValueError(f"el tipo esperado para el argumento id_present es bool pero fue {type(id_present).__name__}")
+        new_class = cls(file_path, None, True, delimiter, check_hash=False)
+        with open(file_path, "r", newline="", encoding="utf-8") as import_:
+            new_import = csv.reader(import_, delimiter=new_class.delimiter)
+            if id_present:
+                head_file = [re.sub(r'[,><=\|&!\s:"]', "", item).upper() for item in next(new_import)]
+            else:
+                head_file = ["INDICE",] + [re.sub(r'[,><=\|&!\s:+*-\.\'#/\?"]', "", item).upper() for item in next(new_import)]
+            with open(new_class.backup_single, "w", newline="", encoding="utf-8") as write_backup:
+                new_back_up = csv.writer(write_backup, delimiter=new_class.delimiter)
+                new_back_up.writerow(head_file)
+                for count, line in enumerate(new_import, 1):
+                    if count > new_class.max_row_limit:
+                        break
+                    if id_present:
+                        line[0] = f"[{count}]"
+                        new_back_up.writerow(line)
+                    else:
+                        new_back_up.writerow([f"[{count}]",] + line)                   
 
     def __len__(self) -> int:
         with open(str(self.backup_multi if not self.single else self.backup_single), 
