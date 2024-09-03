@@ -5,6 +5,7 @@ import shutil
 import csv
 import hashlib
 import dataclasses
+
 try:
     import pytest
 except ImportError:
@@ -14,15 +15,17 @@ except ImportError:
 
 data_test = Path(fr"{Path(__file__).parent}\data_test.csv")
 
+
 class TestBackUpIntegrity:
     """Engloba los test de creación y el mantenimiento de la persistencia de
     datos de los archivos csv usados como backup por el programa"""
-    back_up = Path(fr"{Path(__file__).parent}\backup\backup_multi.csv"), Path(fr"{Path(__file__).parent}\backup\backup_single.csv")
+    back_up = Path(fr"{Path(__file__).parent}\backup\backup_multi.csv"), Path(
+        fr"{Path(__file__).parent}\backup\backup_single.csv")
 
     def test_creates_backup_directory(self):
-        """Verificación de que si el directorio y los archivos de backup 
+        """Verificación de que si el directorio y los archivos de backup
         no existen que sean creados"""
-        if (back_dir:=Path(self.back_up[0].parent)).is_dir():
+        if (back_dir := Path(self.back_up[0].parent)).is_dir():
             shutil.rmtree(str(back_dir))
             sleep(2)
         with open(str(data_test), "w", encoding="utf-8") as _:
@@ -36,21 +39,29 @@ class TestBackUpIntegrity:
         assert self.back_up[1].is_file(), f"el archivo {self.back_up[1].name} no fue creado"
 
     def test_data_gets_rebuild_from_backup(self):
-        """Prueba que en caso de que el archivo csv del usuario y su backup actual (el tipo usado dependerá de si el programa
-        esta en modo single o no) difieran en su contenido se copien los contenidos del backup de vuelta al del usuario para
+        """Prueba que en caso de que el archivo csv del usuario y su backup
+        actual (el tipo usado dependerá de si el programa
+        esta en modo single o no) difieran en su contenido se
+        copien los contenidos del backup de vuelta al del usuario para
         que vuelvan a tener el mismo contenido"""
         rows = [["INDICE", "CLASE", "ATRIBUTOS"],
-                    ["[1]", "<class 'sudoku.Solution.SudokuSolution'>", 
-                    "start: 11223344|||, end: 1234342121434312, start_vals: 4, solving_time: 0.016, difficulty: 25, size: 4"],
-                    ["[2]", "<class 'sudoku.Solution.SudokuSolution'>", 
-                    "start: ---5-127995--863-4-74-92-8---945--2-735-29-6---8-6359786----74---327--56-27--4-3-, "
-                    "end: 386541279952786314174392685619457823735829461248163597861935742493278156527614938, start_vals: 45, solving_time: 0.0, difficulty: 37, size: 9"],
-                    ["[3]", "<class 'sudoku.Solution.SudokuSolution'>", 
-                    "start: 356c7b8eb2d9|1b5g7abdd1ef|4164dcf3|1c22538591f6|317g9aacdfge|2542e8g7|5b657fa8c2g9|1e3d689bfa|6a748c9da1b7g8|"
-                    "2c4a7281cbffg6|1d245889b3db|768f94agb9ecf7|2f325e96bgc9dae5f4g1|2g697dde|164d5faeb1d8|7592bfc4edgg, end: 4d561cbef72"
-                    "39g8ab3e7g6a289dc1f54g8f1947d56aecb32c2a93f8514bg7e6d39184dg6ac57f2bef5b2ce1a936d48g7a7c4b5f3g8e261d9e6dg2897bf4153ac"
-                    "2b635a4cd17fg9e89cga7321e58bd4f6d47f8ge9c236ba15518edb6f4g9a2c738f2ce73b6dg9a5411g35a9d47bc8e62f6a4df2cg3e15879b7e9b61582af43dcg,"
-                    " start_vals: 96, solving_time: 59.938, difficulty: 97934, size: 16"]]
+                ["[1]", "<class 'sudoku.Solution.SudokuSolution'>",
+                 ("start: 11223344|||, end: 1234342121434312, "
+                  "start_vals: 4, solving_time: 0.016, difficulty: 25, size: 4")],
+                ["[2]", "<class 'sudoku.Solution.SudokuSolution'>",
+                 "start: ---5-127995--863-4-74-92-8---945--2-735-29-6---8-6359786----74---327--56-27--4-3-, "
+                 "end: 386541279952786314174392685619457823735829461248163597861935742493278156527614938, "
+                 "start_vals: 45, solving_time: 0.0, difficulty: 37, size: 9"],
+                ["[3]", "<class 'sudoku.Solution.SudokuSolution'>",
+                 "start: 356c7b8eb2d9|1b5g7abdd1ef|4164dcf3|1c22538591f6|317g9aacdfge|2542e8g7|5b657fa8c2g9|"
+                 "1e3d689bfa|6a748c9da1b7g8|"
+                 "2c4a7281cbffg6|1d245889b3db|768f94agb9ecf7|2f325e96bgc9dae5f4g1|2g697dde|164d5faeb1d8|"
+                 "7592bfc4edgg, end: 4d561cbef72"
+                 "39g8ab3e7g6a289dc1f54g8f1947d56aecb32c2a93f8514bg7e6d39184dg6ac57f2bef5b2ce1a936d48g7"
+                 "a7c4b5f3g8e261d9e6dg2897bf4153ac"
+                 "2b635a4cd17fg9e89cga7321e58bd4f6d47f8ge9c236ba15518edb6f4g9a2c738f"
+                 "2ce73b6dg9a5411g35a9d47bc8e62f6a4df2cg3e15879b7e9b61582af43dcg,"
+                 " start_vals: 96, solving_time: 59.938, difficulty: 97934, size: 16"]]
         for val, option in zip(self.back_up, [False, True]):
             with open(str(data_test), "w", encoding="utf-8", newline="") as write:
                 cont_w = csv.writer(write, delimiter="#")
@@ -64,7 +75,7 @@ class TestBackUpIntegrity:
                 if hex_val not in hash_list:
                     hash_list.append(hex_val)
             if len(hash_list) != 1:
-                raise ValueError("HUBO UN PROBLEMA CON EL HASH DE LOS ARCHIVOS AL REALIZAR EL TEST") 
+                raise ValueError("HUBO UN PROBLEMA CON EL HASH DE LOS ARCHIVOS AL REALIZAR EL TEST")
             CsvClassSave(str(data_test), col_sep="#", single=option)
             with open(str(val), "w", encoding="utf-8", newline="") as write:
                 cont_w = csv.writer(write, delimiter="#")
@@ -79,11 +90,11 @@ class TestBackUpIntegrity:
 
     @staticmethod
     def hash_file(file: str) -> str:
-        hash_file: hashlib._Hash  = hashlib.sha256()
-        buffer_size  = bytearray(128*1024)
+        hash_file = hashlib.sha256()
+        buffer_size = bytearray(128 * 1024)
         buffer_view = memoryview(buffer_size)
         with open(file, 'rb', buffering=0) as file_hash:
-            for chunk_ in iter(lambda : file_hash.readinto(buffer_view), 0):
+            for chunk_ in iter(lambda: file_hash.readinto(buffer_view), 0):
                 hash_file.update(buffer_view[:chunk_])
         return hash_file.hexdigest()
 
@@ -104,13 +115,11 @@ class TestAttribute:
         with pytest.raises(ValueError, match="debe ser str"):
             CsvClassSave(self.paths[0])
 
-
     def test_path_not_present(self):
         """chequeando que si la ruta asociada al atributo path_file no existe
         se lance un error"""
         with pytest.raises(ValueError, match="no existe"):
             CsvClassSave(self.paths[1])
-
 
     def test_path_incorrect_ext(self):
         """chequeando que si la ruta asociada al atributo path_file no es de extension .csv
@@ -118,13 +127,11 @@ class TestAttribute:
         with pytest.raises(ValueError, match="de extension"):
             CsvClassSave(self.paths[2])
 
-
     def test_invalid_single(self):
         """chequeando que si el tipo requerido para el atributo single no es bool
         se lance un error"""
         with pytest.raises(ValueError, match="debe ser bool"):
             CsvClassSave(str(data_test), None, self.single_)
-
 
     def test_invalid_col_sep_type(self):
         """chequeando que si el tipo requerido para el atributo col_sep no es str
@@ -132,13 +139,11 @@ class TestAttribute:
         with pytest.raises(ValueError, match="debe ser str"):
             CsvClassSave(str(data_test), None, False, self.col_sep_[0])
 
-
     def test_invalid_col_sep_len(self):
         """chequeando que si el atributo col_sep contiene más de dos caracteres
         se lance un error"""
         with pytest.raises(ValueError, match="contener solo un carácter"):
             CsvClassSave(str(data_test), None, False, self.col_sep_[1])
-
 
     def test_invalid_header_type(self):
         """chequeando que si el tipo requerido para el atributo header no es tuple
@@ -146,14 +151,12 @@ class TestAttribute:
         with pytest.raises(ValueError, match="ser una tuple"):
             CsvClassSave(str(data_test), None, False, "-", self.headers[0])
 
-
     def test_invalid_header_with_less_than_3_str(self):
         """chequeando que si el atributo header no es una tuple con 3 str
         se lance un error"""
         with pytest.raises(ValueError, match="con 3 str"):
             for item in self.headers[1]:
                 CsvClassSave(str(data_test), None, False, "-", item)
-    
 
     def test_invalid_header_with_not_only_str(self):
         """chequeando que si el atributo header no es una tuple con solo str
@@ -161,20 +164,17 @@ class TestAttribute:
         with pytest.raises(ValueError, match="con 3 str"):
             CsvClassSave(str(data_test), None, False, "-", self.headers[2])
 
-    
     def test_invalid_exclude_type(self):
-        """chequeando que si el tipo del atributo exclude no es una tuple 
+        """chequeando que si el tipo del atributo exclude no es una tuple
         se lance un error"""
         with pytest.raises(ValueError, match="ser una tuple o None"):
             CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[0])
-
 
     def test_invalid_exclude_len(self):
         """chequeando que si el atributo exclude es una tuple vacía
         se lance un error"""
         with pytest.raises(ValueError, match="al menos un str"):
             CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[1])
-
 
     def test_invalid_exclude_content_type(self):
         """chequeando que si el atributo exclude contiene no solo str
@@ -192,7 +192,7 @@ class TestAttribute:
 # CsvClassSave on single mode
 class TestSingle:
     """Engloba los test del programa cuando el mismo se ejecuta en modo single=True"""
-    
+
     # to test object with dict but
     # no matching values for current
     # entry formatting
@@ -215,23 +215,23 @@ class TestSingle:
                  "difficulty": 8,
                  "size": 4,
                  "other": "nada"
-                }
+                 }
 
     case_data_single = Path(fr"{Path(__file__).parent}\data\data_single.csv")
     case_time_data = Path(fr"{Path(__file__).parent}\data\times.csv")
 
     def test_static(self):
-        """comprueba que el método estático retorne los resultados 
+        """comprueba que el método estático retorne los resultados
         esperados (comportamiento no difiere en modo multi)"""
-        for case in (True, 12, {"a": 5}, ["no",], ("no",), set()):
+        for case in (True, 12, {"a": 5}, ["no", ], ("no",), set()):
             with pytest.raises(ValueError, match="debe ingresar un str"):
                 CsvClassSave.return_pattern(case)
-        assert CsvClassSave.return_pattern("[:3]") == None
-        assert CsvClassSave.return_pattern("[3") == None
-        assert CsvClassSave.return_pattern("palabra") == None
-        assert CsvClassSave.return_pattern("[1-6-7-8-5-11-12-67-4-3-14]") == None
+        assert CsvClassSave.return_pattern("[:3]") is None
+        assert CsvClassSave.return_pattern("[3") is None
+        assert CsvClassSave.return_pattern("palabra") is None
+        assert CsvClassSave.return_pattern("[1-6-7-8-5-11-12-67-4-3-14]") is None
         assert CsvClassSave.return_pattern("[3:11]") == (":", [3, 11])
-        assert CsvClassSave.return_pattern("[3:]") == (":", [3,])
+        assert CsvClassSave.return_pattern("[3:]") == (":", [3, ])
         assert CsvClassSave.return_pattern("[11:7]") == (":", [7, 11])
         assert CsvClassSave.return_pattern("[0:0]") == (":", [0, 0])
         assert CsvClassSave.return_pattern("[1-4-6]") == ("-", [1, 4, 6])
@@ -242,7 +242,7 @@ class TestSingle:
         assert CsvClassSave.return_pattern("[12]") == (None, [12])
 
     def test_class_method_index(self):
-        """comprueba el funcionamiento del método de clase index para la 
+        """comprueba el funcionamiento del método de clase index para la
         importación de documentos csv"""
         for invalid_arg, message in (((r"{data_test.parent}\test.txt", "#", True), "de extension"),
                                      ((None, "d", False), "debe ser str"),
@@ -256,7 +256,8 @@ class TestSingle:
         expected_vals = [f"[{i}]" for i in range(1, 12)]
         CsvClassSave.index(str(self.case_time_data), "#", False)
         get_values = []
-        with open(fr"{Path(__file__).parent}\backup\backup_single.csv", "r", encoding="utf-8", newline="") as class_method:
+        with open(fr"{Path(__file__).parent}\backup\backup_single.csv", "r", encoding="utf-8",
+                  newline="") as class_method:
             csv_read = csv.reader(class_method, delimiter="#")
             assert expected_head == next(csv_read)
             for row in csv_read:
@@ -279,7 +280,7 @@ class TestSingle:
                 read = csv.reader(has_data, delimiter="#")
                 for line in read:
                     data_writer.writerow(line)
-        
+
         single_test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
         for invalid in (8, ["test"], False, {1, 7, 9}, {"test": "no valido"}):
             with pytest.raises(ValueError, match="argumento string_pattern debe ser str"):
@@ -288,31 +289,35 @@ class TestSingle:
             with pytest.raises(ValueError, match="el argumento"):
                 next(single_test_instance.leer_datos_csv(*bad_type))
         # single seek valid parameters
-        search = {"[2:]": [list(range(2,21)), 19], "[1:4]": [list(range(1,5)), 4], "[11]": [[11], 1],
+        search = {"[2:]": [list(range(2, 21)), 19], "[1:4]": [list(range(1, 5)), 4], "[11]": [[11], 1],
                   "[0:0]": [[], 0], "[0-5]": [[5], 1], "[2-12-1-7-18]": [[1, 2, 7, 12, 18], 5],
-                  "[1-12-14-15-6-7-9-10-11-2]": [[1, 2, 6, 7, 9, 10, 11, 12, 14, 15], 10], 
-                  "[25]": [[], 0], "[0:5]": [list(range(1,6)), 5],
-                                                   # and operator
-                   '"size" = 16': [[5, 8, 10, 20], 4], '"size" = 9 & "solving_time" = 0.0': [[2, 12], 2],
-                   '"size" = 9 & "solving_time = 0.0': [[], 0], '"size" = 9 "solving_time" = 0.0': [[], 0],
-                   '"size" = 9 & "solving_time": 0.0': [[], 0], '"size" = 9 % "solving_time" = 0.0': [[], 0],
-                   '"size" = 9 & "solving_time" = 0 & "difficulty" = 51': [[12], 1], 
-                   '"size" = 9 & "solving_time" = 0.0 | "difficulty" = 51': [[2, 12], 2], 
-                   '"size"=4|"size"=9': [[], 0], '"size" = 4 | "size" = 9 | "size" = 16': [list(range(1,21)), 20],
-                   '"size" = 9 | "solving_time" = 0': [[1, 2, 3, 4, 6, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19], 16],
-                   '"size" = 4 & "size" = 9 & "size" = 16': [[], 0], '"size" = 4 & "size" = 9 | "size" = 16': [[5, 8, 10, 20], 4],
-                   '"size" < 4': [[], 0], '"size" <= 4': [[1, 3, 4], 3], '"size" != 4': [[2] + list(range(5,21)), 17],
-                   '"size" > 4': [[2] + list(range(5,21)), 17], '"size" => 4': [[], 0], '"size" >= 16': [[5, 8, 10, 20], 4],
-                   '"size" > 0': [list(range(1,21)), 20], '"size" < 100': [list(range(1,21)), 20], '"size" > test': [[], 0],
-                   '"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3],
-                   '"difficulty" < 6800 & "difficulty" >= 5000 | "size" < 4 & "solving_time" != 4.047': [[20], 1],
-                   # if you chain more than 4 the last ones get combined into one "solving_time" != (4.047 & "size" < 20)
-                   '"size" > 4 & "difficulty" >= 6000 & "difficulty" < 7000 & "solving_time" != 4.047 & "size" < 20': [[10, 20], 2],
-                   # checking if old system is recognized
-                   "size=16": [[], 0], "size=9~solving_time=0.0": [[], 0], 
-                   "size=9~solving_time=0.0~difficulty=51": [[], 0], "size=9~solving_time=0.0 difficulty=51": [[], 0],
-                   "size=9~solving_time=0.0 solving_time=0.312": [[], 0], "size=9 solving_time=0.0": [[], 0], 
-                   "size=10": [[], 0], "1b5": [[5, 20], 2], "": [list(range(1,21)), 20], "size: 9": [[], 0]}
+                  "[1-12-14-15-6-7-9-10-11-2]": [[1, 2, 6, 7, 9, 10, 11, 12, 14, 15], 10],
+                  "[25]": [[], 0], "[0:5]": [list(range(1, 6)), 5],
+                  # and operator
+                  '"size" = 16': [[5, 8, 10, 20], 4], '"size" = 9 & "solving_time" = 0.0': [[2, 12], 2],
+                  '"size" = 9 & "solving_time = 0.0': [[], 0], '"size" = 9 "solving_time" = 0.0': [[], 0],
+                  '"size" = 9 & "solving_time": 0.0': [[], 0], '"size" = 9 % "solving_time" = 0.0': [[], 0],
+                  '"size" = 9 & "solving_time" = 0 & "difficulty" = 51': [[12], 1],
+                  '"size" = 9 & "solving_time" = 0.0 | "difficulty" = 51': [[2, 12], 2],
+                  '"size"=4|"size"=9': [[], 0], '"size" = 4 | "size" = 9 | "size" = 16': [list(range(1, 21)), 20],
+                  '"size" = 9 | "solving_time" = 0': [[1, 2, 3, 4, 6, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19], 16],
+                  '"size" = 4 & "size" = 9 & "size" = 16': [[], 0],
+                  '"size" = 4 & "size" = 9 | "size" = 16': [[5, 8, 10, 20], 4],
+                  '"size" < 4': [[], 0], '"size" <= 4': [[1, 3, 4], 3], '"size" != 4': [[2] + list(range(5, 21)), 17],
+                  '"size" > 4': [[2] + list(range(5, 21)), 17], '"size" => 4': [[], 0],
+                  '"size" >= 16': [[5, 8, 10, 20], 4],
+                  '"size" > 0': [list(range(1, 21)), 20], '"size" < 100': [list(range(1, 21)), 20],
+                  '"size" > test': [[], 0],
+                  '"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3],
+                  '"difficulty" < 6800 & "difficulty" >= 5000 | "size" < 4 & "solving_time" != 4.047': [[20], 1],
+                  # if you chain more than 4 the last ones get combined into one "solving_time" != (4.047 & "size" < 20)
+                  '"size" > 4 & "difficulty" >= 6000 & "difficulty" < 7000 & "solving_time" != 4.047 & "size" < 20': [
+                      [10, 20], 2],
+                  # checking if old system is recognized
+                  "size=16": [[], 0], "size=9~solving_time=0.0": [[], 0],
+                  "size=9~solving_time=0.0~difficulty=51": [[], 0], "size=9~solving_time=0.0 difficulty=51": [[], 0],
+                  "size=9~solving_time=0.0 solving_time=0.312": [[], 0], "size=9 solving_time=0.0": [[], 0],
+                  "size=10": [[], 0], "1b5": [[5, 20], 2], "": [list(range(1, 21)), 20], "size: 9": [[], 0]}
         for query, value in search.items():
             collect_entries = []
             for item in single_test_instance.leer_datos_csv(query, back_up=True):
@@ -320,38 +325,59 @@ class TestSingle:
             collect_entries.pop(0)
             assert len(collect_entries) == value[1], f"fallo en cantidad encontrada: {query}"
             assert collect_entries == [f"[{val}]" for val in value[0]], f"fallo en buscar entrada: {query}"
-            head_1 = ["INDICE", "START", "END", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
-            head_2 = ["INDICE", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
-            head_3 = ["INDICE", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
-            head_4 = ["INDICE", "START", "END"]
-            head_5 = ["INDICE", "START", "END", "START_VALS"]
-        special_query = {'"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
-                         '![] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
-                         '[] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
-                         '[indice] "indice" <= 10': [list(range(1, 11)), 10, 1, ["INDICE",]],
-                         # space inside [] is not permitted
-                         '![size  ] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[], 0, 7, head_1],
-                         '![indice] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
-                         '![start_] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 7, head_1],
-                         '![START#END] "size" > 4': [[2] + list(range(5,21)), 17, 5, head_2],
-                         '[START#END] "size" > 4': [[2] + list(range(5,21)), 17, 3, head_4],
-                         '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 5, head_2],
-                         '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 3, head_4],
-                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_3],
-                         # syntax error can only chain one function to a query
-                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:1:AVG:SIZE': [[], 0, 7, head_1],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3, 4, head_5],
-                         # those limit test are better formatted for this section
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:': [[5, 6, 20], 3, 4, head_5],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:START': [[5, 6, 20], 3, 4, head_5],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:0': [[5, 6, 20], 3, 4, head_5],
-                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:-12': [[5, 6, 20], 3, 4, head_3],
-                         '![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:12': [[5, 6, 20], 3, 4, head_3],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:2': [[5, 6], 2, 4, head_5],
-                         '[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~ASC:difficulty': [[5, 6, 20], 3, 4, head_5],
-                         '[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~ASC:start_vals': [[6, 20, 5], 3, 4, head_5],
-                         '[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~DESC:start_vals': [[5, 20, 6], 3, 4, head_5],
-                        }
+        head_1 = ["INDICE", "START", "END", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+        head_2 = ["INDICE", "START_VALS", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+        head_3 = ["INDICE", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
+        head_4 = ["INDICE", "START", "END"]
+        head_5 = ["INDICE", "START", "END", "START_VALS"]
+        special_query = {
+            ('"size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
+            ('![] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
+            ('[] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
+            '[indice] "indice" <= 10': [list(range(1, 11)), 10, 1, ["INDICE", ]],
+            # space inside [] is not permitted
+            ('![size  ] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[], 0, 7, head_1],
+            ('![indice] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
+            ('![start_] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
+            '![START#END] "size" > 4': [[2] + list(range(5, 21)), 17, 5, head_2],
+            '[START#END] "size" > 4': [[2] + list(range(5, 21)), 17, 3, head_4],
+            '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [
+                [5, 6, 20], 3, 5, head_2],
+            '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [
+                [5, 6, 20], 3, 3, head_4],
+            ('![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 4, head_3],
+            # syntax error can only chain one function to a query
+            ('![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:1:AVG:SIZE'): [[], 0, 7, head_1],
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 4, head_5],
+            # those limit test are better formatted for this section
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:'): [[5, 6, 20], 3, 4, head_5],
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:START'): [[5, 6, 20], 3, 4, head_5],
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:0'): [[5, 6, 20], 3, 4, head_5],
+            ('![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:-12'): [[5, 6, 20], 3, 4, head_3],
+            ('![START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:12'): [[5, 6, 20], 3, 4, head_3],
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:2'): [[5, 6], 2, 4, head_5],
+            ('[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~ASC:difficulty'): [[5, 6, 20], 3, 4, head_5],
+            ('[START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~ASC:start_vals'): [[6, 20, 5], 3, 4, head_5],
+            ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~DESC:start_vals'): [[5, 20, 6], 3, 4, head_5],
+            }
         for exclude_query, values in special_query.items():
             collect_entries = []
             new_query = single_test_instance.leer_datos_csv(exclude_query, back_up=True)
@@ -363,23 +389,35 @@ class TestSingle:
             assert len(collect_entries) == values[1], f"fallo en cantidad encontrada: {exclude_query}"
             assert collect_entries == [f"[{val}]" for val in values[0]], f"fallo en buscar entrada: {exclude_query}"
         # se produce cuando ningún nombre de las columnas especificada coinciden después de la selección de columnas
-        syntax_error = single_test_instance.leer_datos_csv('[solving_time#difficulty#size] "dificulty" > 10 & "dificulty" < 100')
+        syntax_error = single_test_instance.leer_datos_csv(
+            '[solving_time#difficulty#size] "dificulty" > 10 & "dificulty" < 100')
         # header
         next(syntax_error)
         assert next(syntax_error) == "error de sintaxis"
         # all of this needs refeactoring
-        functional_queries = {'![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:': [[], 3, 5, head_2],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:difficulty': [[], 3, 3, head_4],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~COUNT:dificulty': [[], 3, 3, head_4],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~AVG:difficulty': [[], 80245, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:difficulty': [[], 6715, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MIN:size': [[], 9, 5, head_2],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[], 136087, 5, head_2],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty': [[5, 6], "abg6|", 3, head_4],
-                              '[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:start': [[], 0, 3, head_4],
-                              '![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047~SUM:size': [[], 41, 5, head_2],
-                             }
-        
+        functional_queries = {
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~COUNT:'): [[], 3, 5, head_2],
+            ('[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~COUNT:difficulty'): [[], 3, 3, head_4],
+            ('[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~COUNT:dificulty'): [[], 3, 3, head_4],
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~AVG:difficulty'): [[], 80245, 5, head_2],
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" > '
+             '6700 & "solving_time" != 4.047~MIN:difficulty'): [[], 6715, 5, head_2],
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047~MIN:size'): [[], 9, 5, head_2],
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~MAX:difficulty'): [[], 136087, 5, head_2],
+            ('[START#END] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047~MAX:difficulty'): [[5, 6], "abg6|", 3, head_4],
+            ('[START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
+             '> 6700 & "solving_time" != 4.047~SUM:start'): [[], 0, 3, head_4],
+            ('![START#END] "size" > 4 & "difficulty" >= 5000 | '
+             '"difficulty" > 6700 & "solving_time" != 4.047~SUM:size'): [[], 41, 5, head_2],
+            }
+
         for functional_queries, numbers in functional_queries.items():
             collect_functional = []
             query_func = single_test_instance.leer_datos_csv(functional_queries, back_up=True)
@@ -391,11 +429,13 @@ class TestSingle:
             assert len(func_head) == numbers[2], f"fallo en igualdad de cantidad de columnas: {func_head}"
             assert func_head == numbers[-1], f"fallo en igualdad de encabezado: {func_head}"
             if isinstance(numbers[1], str):
-                assert last_item[1][0:5] == numbers[1], f"fallo en resultado para argumento función filtrado en columnas incluidas {numbers[1]}"
+                assert last_item[1][0:5] == numbers[
+                    1], f"fallo en resultado para argumento función filtrado en columnas incluidas {numbers[1]}"
             else:
                 assert int(last_item[-1]) == numbers[1], f"fallo en resultado función: {functional_queries}"
-            assert collect_functional == [f"[{val}]" for val in numbers[0]], f"fallo en buscar entrada: {functional_queries}"
-        
+            assert collect_functional == [f"[{val}]" for val in
+                                          numbers[0]], f"fallo en buscar entrada: {functional_queries}"
+
         # this is an implicit test if this method fails then the next assertions will also fails
         CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
         sleep(2)
@@ -403,7 +443,7 @@ class TestSingle:
         # repopulating with new data
         date_instance_test = CsvClassSave(str(data_test), None, True, "#")
         searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
-                          '"date" < 06-11-2000': [[], 0], 
+                          '"date" < 06-11-2000': [[], 0],
                           '"DATE" = 2024-08-24': [[7, 11], 2],
                           '"DATE" != 2024-08-21': [list(range(1, 10)) + [11], 10],
                           '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9, 11], 3],
@@ -425,7 +465,7 @@ class TestSingle:
                           '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 4], 5],
                           '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
                           '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
-                        }
+                          }
         for query_date, value_date in searching_test.items():
             collect_entries = []
             for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
@@ -437,47 +477,47 @@ class TestSingle:
                     collect_entries.append(f"[{dates[-1]}]")
             collect_entries.pop(0)
             assert len(collect_entries) == value_date[1], f"fallo en cantidad encontrada: {query_date}"
-            assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}" 
-        
-        
+            assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}"
+
     def test_single_delete(self):
-            """comprueba que se borren las entradas especificadas, el comportamiento
-            es igual independiente del modo (single (single=True) or multiple (single=False))"""
-            # clean up the data always before an assert
-            # putting data back on track
-            with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
-                single_writer = csv.writer(back_single, delimiter="#")
-                with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
-                    singles = csv.reader(single_read, delimiter="#")
-                    for single in singles:
-                        single_writer.writerow(single)
-            test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
-            invalid_delete = ["hola", "size=9", "[:12]", "[1-12-14-15-6-7-9-10-11-2-14]", "[10-]", "<class 'vehiculo.Bicicleta'>"]
-            for query in invalid_delete:
-                with pytest.raises(ValueError, match="uno de los siguientes formatos"):
-                    next(test_instance.borrar_datos(query))
-        
-            for bad_arg in ((12, True), ("[2:5]", 13), (True, "[2:5]")):
-                with pytest.raises(ValueError, match="el argumento"):
-                    next(test_instance.borrar_datos(*bad_arg))
-        
-            # borrar dato con indice inexistente
-            with pytest.raises(ValueError, match="ninguno de los valores"):
-                next(test_instance.borrar_datos("[25]"))
-    
-            valid_delete = {"[1]": [[1], 19], "[2:4]": [list(range(2,5)), 16], 
-                            "[1-5-10]": [[1, 5, 10], 13], "[3:]": [list(range(3, 14)), 2]}
-            for deleted, value in valid_delete.items():
-                collect_deleted = []
-                for item in test_instance.borrar_datos(deleted):
-                    collect_deleted.append(str(item).split("#")[0])
-                collect_deleted.pop(0)
-                assert test_instance.current_rows - 1 == value[1], f"fallo en cantidad borrada: {deleted}"
-                assert collect_deleted == [f"[{val}]" for val in value[0]], f"fallo en borrar entrada: {deleted}"
-            
-            assert next(test_instance.borrar_datos("borrar todo")) == "todo"
-            assert next(test_instance.borrar_datos("borrar todo")) == "nada"
-            assert next(test_instance.borrar_datos("[1]")) == "nada"
+        """comprueba que se borren las entradas especificadas, el comportamiento
+        es igual independiente del modo (single (single=True) or multiple (single=False))"""
+        # clean up the data always before an assert
+        # putting data back on track
+        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
+            single_writer = csv.writer(back_single, delimiter="#")
+            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
+                singles = csv.reader(single_read, delimiter="#")
+                for single in singles:
+                    single_writer.writerow(single)
+        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
+        invalid_delete = ["hola", "size=9", "[:12]", "[1-12-14-15-6-7-9-10-11-2-14]", "[10-]",
+                          "<class 'vehiculo.Bicicleta'>"]
+        for query in invalid_delete:
+            with pytest.raises(ValueError, match="uno de los siguientes formatos"):
+                next(test_instance.borrar_datos(query))
+
+        for bad_arg in ((12, True), ("[2:5]", 13), (True, "[2:5]")):
+            with pytest.raises(ValueError, match="el argumento"):
+                next(test_instance.borrar_datos(*bad_arg))
+
+        # borrar dato con indice inexistente
+        with pytest.raises(ValueError, match="ninguno de los valores"):
+            next(test_instance.borrar_datos("[25]"))
+
+        valid_delete = {"[1]": [[1], 19], "[2:4]": [list(range(2, 5)), 16],
+                        "[1-5-10]": [[1, 5, 10], 13], "[3:]": [list(range(3, 14)), 2]}
+        for deleted, value in valid_delete.items():
+            collect_deleted = []
+            for item in test_instance.borrar_datos(deleted):
+                collect_deleted.append(str(item).split("#")[0])
+            collect_deleted.pop(0)
+            assert test_instance.current_rows - 1 == value[1], f"fallo en cantidad borrada: {deleted}"
+            assert collect_deleted == [f"[{val}]" for val in value[0]], f"fallo en borrar entrada: {deleted}"
+
+        assert next(test_instance.borrar_datos("borrar todo")) == "todo"
+        assert next(test_instance.borrar_datos("borrar todo")) == "nada"
+        assert next(test_instance.borrar_datos("[1]")) == "nada"
 
     def test_pass_object_no_dict(self):
         """chequea que se de una advertencia si se intenta guardar un objeto que no
@@ -489,23 +529,25 @@ class TestSingle:
                 read = csv.reader(has_data, delimiter="#")
                 for line in read:
                     data_writer.writerow(line)
-        assert "Actualmente esta ocupando un objeto de tipo" in CsvClassSave(str(self.case_data_single), single=True, col_sep="#").guardar_datos_csv()
+        assert "Actualmente esta ocupando un objeto de tipo" in CsvClassSave(str(self.case_data_single), single=True,
+                                                                             col_sep="#").guardar_datos_csv()
 
     def test_max_row_zero(self):
         """chequea que si se excede la capacidad designada para la cantidad de filas
         se retorne una advertencia al usuario al tratar de crear una nueva entrada"""
+
         # test class so the object has __dict__
         class RowsTest:
             filler = 0
 
-        test_instance = CsvClassSave(str(data_test), object=RowsTest(), single=True, col_sep="#")
+        test_instance = CsvClassSave(str(data_test), class_object=RowsTest(), single=True, col_sep="#")
         test_instance.max_row_limit = 0
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
         test_instance.max_row_limit = 13
         # plus one to not count header
         test_instance.current_rows = 14
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
-        
+
     def test_not_matched_dict_object_single(self):
         """en el modo single no se pueden escribir nuevas entrada que no tengan los mismo nombres
         de atributos y cantidad de atributos que las entradas ya presentes aquí se chequea que
@@ -531,11 +573,15 @@ class TestSingle:
         """comprueba que los atributos del objeto excluidos usando el
         atributo exclude sean excluidos al escribir una nueva entrada ('!' al
         inicio de exclude es para negar y que solo se incluya lo después del '!')"""
-        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#", exclude=("other",))
-        assert local_instance.guardar_datos_csv() == "\nINDICE#START#END#START_VALS#SOLVING_TIME#DIFFICULTY#SIZE\n[21]#-432-3---1-442-3#1432234131244213#9#0.0#8#4"
-        local_instance.object.end = ":" +  local_instance.object.end
+        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#",
+                                      exclude=("other",))
+        assert local_instance.guardar_datos_csv() == ("\nINDICE#START#END#START_VALS#SOLVING_TIME#DIFFICULTY#"
+                                                      "SIZE\n[21]#-432-3---1-442-3#1432234131244213#9#0.0#8#4")
+        local_instance.object.end = ":" + local_instance.object.end
         # comprobando que en modo single = True los : no son remplazados
-        assert local_instance.guardar_datos_csv() == "\nINDICE#START#END#START_VALS#SOLVING_TIME#DIFFICULTY#SIZE\n[22]#-432-3---1-442-3#:1432234131244213#9#0.0#8#4"
+        assert local_instance.guardar_datos_csv() == ("\nINDICE#START#END#START_VALS#SOLVING_TIME"
+                                                      "#DIFFICULTY#SIZE\n[22]#-432-3---1-442-3#:"
+                                                      "1432234131244213#9#0.0#8#4")
         local_instance.exclude = ("!", "other")
         # esto lanza error (como debería) por que es modo single y la cantidad de atributos
         # no calza al negar exclude con los de las entradas ya escritas
@@ -544,14 +590,15 @@ class TestSingle:
 
     def test_enforce_single(self):
         """comprueba que se pasen los argumentos apropiados al método guardar_datos_csv
-        y que al pasar los correctos se aplique la función de enforce_unique que es 
+        y que al pasar los correctos se aplique la función de enforce_unique que es
         comprobar que solo se puedan escribir nuevas entradas con valores únicos para los
         campos pasados al argumento enforce_unique"""
-        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#", exclude=("other",))
+        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#",
+                                      exclude=("other",))
         # cleaning data always before the next assert
         for _ in local_instance.borrar_datos("[21:]"):
             pass
-        for cases, message in {12: "debe ser una tuple", (): "al menos un str", 
+        for cases, message in {12: "debe ser una tuple", (): "al menos un str",
                                (True,): "solo debe contener str", ("size", 12): "solo debe contener str"}.items():
             with pytest.raises(ValueError, match=message):
                 local_instance.guardar_datos_csv(enforce_unique=cases)
@@ -561,13 +608,13 @@ class TestSingle:
     def test_export_single(self):
         """comprueba que al querer usar export en modo single = True se lance un
         error ya que no se encuentra disponible el método con esa opción"""
-        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#") 
+        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
         with pytest.raises(AttributeError, match="no disponible en modo single = True"):
             test_instance.export("", "")
 
 
 class TestMultiple:
-    """Engloba los test para el modo multiple o single = False, 
+    """Engloba los test para el modo multiple o single = False,
     solo implementando pruebas en aquellos lugares donde ambos modos
     difieren en la ejecución de su código"""
     case_data_multiple = Path(fr"{Path(__file__).parent}\data\data_multiple_class.csv")
@@ -583,11 +630,11 @@ class TestMultiple:
     arguments = {"nombre": "Mark Test",
                  "edad": 40,
                  "nacimiento": 1984,
-                 "estado": "soltero", 
+                 "estado": "soltero",
                  "comentario": "estoy tranquilo"}
 
     def test_seek_multiple(self):
-        """comprobando que la búsqueda de entradas funcione como es debido 
+        """comprobando que la búsqueda de entradas funcione como es debido
         en modo multi o single=False (en general que de resultados distintos en
         ciertas búsquedas con respecto a los que da en modo single)"""
         create_path_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
@@ -598,13 +645,14 @@ class TestMultiple:
                 for line in read:
                     data_writer.writerow(line)
         multi_test_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
-                  # en modo multiple no hay soporte para operadores como el or y and
-                  # del modo simple para buscar, aparte de eso la funcionalidad 
-                  # para buscar es la misma entre los dos modos (en modo multiple
-                  # para buscar por atributo (columna en modo single) usas 
-                  # nombre_columna: valor)
+        # en modo multiple no hay soporte para operadores como el or y and
+        # del modo simple para buscar, aparte de eso la funcionalidad
+        # para buscar es la misma entre los dos modos (en modo multiple
+        # para buscar por atributo (columna en modo single) usas
+        # nombre_columna: valor)
         search = {'"marca" = Ford & velocidad = 180': [[], 0], "marca: Ford & velocidad: 180": [[], 0],
-                  '"marca" = ford | velocidad >= 180': [[], 0], "marca: Ford": [[1, 11], 2], "marca: ford": [[1, 11], 2],
+                  '"marca" = ford | velocidad >= 180': [[], 0], "marca: Ford": [[1, 11], 2],
+                  "marca: ford": [[1, 11], 2],
                   "vehiculo.automovil": [[5, 10, 11], 3]}
         for query, value in search.items():
             collect_entries = []
@@ -620,7 +668,7 @@ class TestMultiple:
     def test_delete_multi(self):
         """comprueba que en modo multiple se pueda borrar entradas usando el nombre de una clase"""
         local_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
-        assert local_instance.current_classes == ["<class 'vehiculo.Particular'>", "<class 'vehiculo.Carga'>", 
+        assert local_instance.current_classes == ["<class 'vehiculo.Particular'>", "<class 'vehiculo.Carga'>",
                                                   "<class 'vehiculo.Bicicleta'>", "<class 'vehiculo.Motocicleta'>",
                                                   "<class 'vehiculo.Automovil'>"]
         deleted_entries = []
@@ -628,13 +676,13 @@ class TestMultiple:
             deleted_entries.append(str(item).split("|")[0])
         deleted_entries.pop(0)
         assert deleted_entries == ["[1]", "[9]"]
-        assert local_instance.current_classes == ["<class 'vehiculo.Carga'>", "<class 'vehiculo.Bicicleta'>", 
+        assert local_instance.current_classes == ["<class 'vehiculo.Carga'>", "<class 'vehiculo.Bicicleta'>",
                                                   "<class 'vehiculo.Motocicleta'>", "<class 'vehiculo.Automovil'>"]
 
     def test_not_matched_dict_object_multiple(self):
         """comprobando que en modo multiple se puedan guardar objetos con distinto
         número y nombre de atributos (esta es la función que implementa el modo multiple a
-        diferencia del modo single donde solo un tipo de objetos de igual numero y nombre 
+        diferencia del modo single donde solo un tipo de objetos de igual numero y nombre
         de atributos se debe guardar)
         """
         # restoring last test data changes
@@ -646,20 +694,21 @@ class TestMultiple:
                     data_writer.writerow(line)
         local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
         has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
-                    "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                    "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero, comentario: estoy tranquilo")
+                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
+                     "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero, comentario: estoy tranquilo")
         assert local_instance.guardar_datos_csv() == has_to_be
 
     def test_exclude_multiple(self):
         """comprueba que los atributos del objeto excluidos usando el
         atributo exclude sean excluidos al escribir una nueva entrada en modo
         multiple ya que hay diferencias en el código usado para hacerlo dependiendo del modo"""
-        local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|", exclude=("comentario",))
+        local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|",
+                                      exclude=("comentario",))
         for _ in local_instance.borrar_datos("[12]"):
             pass
         has_to_be_1 = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
-                    "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                    "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero")
+                       "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
+                       "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero")
         assert local_instance.guardar_datos_csv() == has_to_be_1
         local_instance.exclude = ("!", "comentario")
         has_to_be_2 = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
@@ -670,7 +719,7 @@ class TestMultiple:
                        "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
                        "edad: 40, comentario: estoy tranquilo")
         assert local_instance.guardar_datos_csv() == has_to_be_3
- 
+
     def test_enforce_multiple(self):
         """comprueba el funcionamiento del argumento enforce_unique
         del método guardar_datos_csv en modo multiple"""
@@ -680,27 +729,27 @@ class TestMultiple:
         local_instance.guardar_datos_csv()
         assert local_instance.guardar_datos_csv(enforce_unique=("comentario",)) == "presente"
         local_argument = {"nombre": "Mark mayz",
-                         "edad": 40,
-                         "nacimiento": 1984,
-                         "estado": "casado", 
-                         "comentario": "nada"}
+                          "edad": 40,
+                          "nacimiento": 1984,
+                          "estado": "casado",
+                          "comentario": "nada"}
         new_local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**local_argument), False, "|")
         assert new_local_instance.guardar_datos_csv(enforce_unique=("nacimiento", "edad")) == "presente"
         has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
-                    "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                    "nombre: Mark mayz, edad: 40, nacimiento: 1984, estado: casado, comentario: nada")
+                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
+                     "nombre: Mark mayz, edad: 40, nacimiento: 1984, estado: casado, comentario: nada")
         # all enforce unique fields have to be present for the filter to work
         assert new_local_instance.guardar_datos_csv(enforce_unique=("estado", "nombre", "nacimiento")) == has_to_be
-        
+
     def test_remove_invalid_char(self):
         """comprueba la correcta eliminación y remplazo del carácter : (modo single = False solamente)
         el cual es ocupado para separar valores dentro de la columna atributos
         con los cuales luego se puede exportar datos usando el método export"""
         local_argument = {"nombre": "Mark : mayz",
-                         "edad": 40,
-                         "nacimiento": 1984,
-                         "estado": "ca:sado:", 
-                         "comentario": "::nada de lo que esta aquí me gustaría decirlo, asi que adios: me despido"}
+                          "edad": 40,
+                          "nacimiento": 1984,
+                          "estado": "ca:sado:",
+                          "comentario": "::nada de lo que esta aquí me gustaría decirlo, asi que adios: me despido"}
         new_local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**local_argument), False, col_sep="|")
         for _ in new_local_instance.borrar_datos("[12:]"):
             pass
@@ -709,13 +758,13 @@ class TestMultiple:
                         "nombre: Mark ; mayz, edad: 40, nacimiento: 1984, estado: ca;sado;, "
                         "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
         expected_str_2 = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
-                        "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                        "nombre: Mark ; mayz, nacimiento: 1984, estado: ca;sado;, "
-                        "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
+                          "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
+                          "nombre: Mark ; mayz, nacimiento: 1984, estado: ca;sado;, "
+                          "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
         expected_str_3 = ("\nINDICE|CLASE|ATRIBUTOS\n[14]|"
-                        "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                        "nombre: Mark ; mayz, nacimiento: 1960, estado: ca;sado;, "
-                        "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
+                          "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
+                          "nombre: Mark ; mayz, nacimiento: 1960, estado: ca;sado;, "
+                          "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
         assert new_local_instance.guardar_datos_csv() == expected_str
         new_local_instance.exclude = ("edad",)
         assert new_local_instance.guardar_datos_csv() == expected_str_2
@@ -729,20 +778,20 @@ class TestMultiple:
         single = False para la creación de csv individuales a partir de un
         conjunto de clases"""
         destination = Path(fr"{Path(__file__).parent}\data\export_destination.csv")
-        new_local_instance = CsvClassSave(str(data_test), None, False, col_sep="|")
+        new_local_instance = CsvClassSave(str(data_test), None, False, col_sep="|", check_hash=False)
         for _ in new_local_instance.borrar_datos("[14]"):
             pass
-        incorrect_args = [((fr"{destination.parent}\destino.csv", "vehiculo"),"de destino debe ser una ruta valida"), 
-                          ((fr"{data_test.parent}\file_test.txt", "vehiculo"), "debe ser de extension .csv"), 
+        incorrect_args = [((fr"{destination.parent}\destino.csv", "vehiculo"), "de destino debe ser una ruta valida"),
+                          ((fr"{data_test.parent}\file_test.txt", "vehiculo"), "debe ser de extension .csv"),
                           ((12, "<class 'vehiculo.Automovil'>"), "el argumento destination debe ser str"),
                           ((str(destination), True), "class_name debe ser str")]
         for value, match in incorrect_args:
             with pytest.raises(ValueError, match=match):
                 new_local_instance.export(*value)
-    
+
         with pytest.raises(DataExportError, match="cantidad de atributos no corresponde"):
-            # if you use enforce unique you can end with two 
-            # rows of a same class header that have an uneven 
+            # if you use enforce unique you can end with two
+            # rows of a same class header that have an uneven
             # amount of attributes and you end with a DataExportError
             new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
         final_state = ("INDICE|MARCA|MODELO|RUEDAS|VELOCIDAD|CILINDRADA\n"
@@ -762,7 +811,8 @@ class TestMultiple:
         # doing second test
         new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
         final_state = ("INDICE|NOMBRE|EDAD|NACIMIENTO|ESTADO|COMENTARIO\n"
-                       "[1]|Mark ; mayz|40|1984|ca;sado;|;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido\n")
+                       "[1]|Mark ; mayz|40|1984|ca;sado;|;;nada de lo que esta aquí me gustaría decirlo, "
+                       "asi que adios; me despido\n")
         contents.clear()
         with open(str(destination), "r", newline="", encoding="utf-8") as new_reader_2:
             read_result_2 = csv.reader(new_reader_2, delimiter="|")
@@ -777,7 +827,8 @@ class TestMultiple:
         new_local_instance.delimiter = ";"
         # it was false because the original object had no __dict__
         new_local_instance.can_save = True
-        new_local_instance.object = self.MultiObjectTest(**{"nombre": "aq;uí", "edad": 0, "nacimiento": 17, "estado": ";ahora;", "comentario": "HOLA"})
+        new_local_instance.object = self.MultiObjectTest(
+            **{"nombre": "aq;uí", "edad": 0, "nacimiento": 17, "estado": ";ahora;", "comentario": "HOLA"})
         new_local_instance.guardar_datos_csv()
         new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
         # using normal reader because csv reader get rid of the ""
@@ -790,6 +841,3 @@ class TestMultiple:
                 # get rid of the \r\n that was in the file
                 accumulate += result_3.strip()
         assert final_state == accumulate
-        
-
-
