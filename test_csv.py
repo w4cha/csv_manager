@@ -96,6 +96,7 @@ class TestAttribute:
     col_sep_ = 0, "er"
     headers = False, ((), ("index",), ("index", "class"), ("index", "class", "attr", "other")), ("index", "class", 3)
     excludes = 15, (), ("wer", ["3"])
+    hashed = "no"
 
     def test_path_invalid_type(self):
         """chequeando que si el tipo del atributo path_file no es str
@@ -181,6 +182,11 @@ class TestAttribute:
         with pytest.raises(ValueError, match="todos los valores de la tuple"):
             CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[2])
 
+    def test_invalid_hashing_type(self):
+        """chequeando que si el atributo check_hash no es bool
+        se lance un error"""
+        with pytest.raises(ValueError, match="debe ser bool"):
+            CsvClassSave(str(data_test), None, False, ",", ("indice", "clase", "parámetros"), ("valores",), self.hashed)
 
 
 # CsvClassSave on single mode
@@ -235,6 +241,28 @@ class TestSingle:
         assert CsvClassSave.return_pattern("[0]") == (None, [0])
         assert CsvClassSave.return_pattern("[12]") == (None, [12])
 
+    def test_class_method_index(self):
+        """comprueba el funcionamiento del método de clase index para la 
+        importación de documentos csv"""
+        for invalid_arg, message in (((r"{data_test.parent}\test.txt", "#", True), "de extension"),
+                                     ((None, "d", False), "debe ser str"),
+                                     ((r"{data_test.parent}\test.csv", "<", True), "no existe"),
+                                     ((str(data_test), "%", "no"), "argumento id_present"),
+                                     ((str(data_test), "$$", False), "debe contener solo un")):
+            with pytest.raises(ValueError, match=message):
+                CsvClassSave.index(*invalid_arg)
+        # probando que la importación tenga el formato deseado
+        expected_head = ["INDICE", "NAME", "CITY", "AGE", "JOB", "DATE"]
+        expected_vals = [f"[{i}]" for i in range(1, 12)]
+        CsvClassSave.index(str(self.case_time_data), "#", False)
+        get_values = []
+        with open(fr"{Path(__file__).parent}\backup\backup_single.csv", "r", encoding="utf-8", newline="") as class_method:
+            csv_read = csv.reader(class_method, delimiter="#")
+            assert expected_head == next(csv_read)
+            for row in csv_read:
+                get_values.append(row[0])
+        assert get_values == expected_vals
+
     def test_single_seek(self):
         """comprueba que las búsquedas realizadas usando el modo single
         retorne los resultados esperados (algunos patrones de búsqueda son comunes
@@ -242,6 +270,8 @@ class TestSingle:
         # this as a class variable gave a weird behavior
         # managing class state is painful in test
         # to create backup directory
+        # cleaning data last test
+        # cleaning data in data_test.csv data on the data_test
         CsvClassSave(str(data_test), None, True, "#")
         with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as pass_data:
             data_writer = csv.writer(pass_data, delimiter="#")
@@ -365,30 +395,43 @@ class TestSingle:
             else:
                 assert int(last_item[-1]) == numbers[1], f"fallo en resultado función: {functional_queries}"
             assert collect_functional == [f"[{val}]" for val in numbers[0]], f"fallo en buscar entrada: {functional_queries}"
+        
+        # this is an implicit test if this method fails then the next assertions will also fails
+        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+        sleep(2)
         # test date data on search and operations, accepted format is ISO8601
         # repopulating with new data
-        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as date_data:
-            date_writer = csv.writer(date_data, delimiter="#")
-            with open(str(self.case_time_data), "r", newline="", encoding="utf-8") as date_read:
-                read_dates = csv.reader(date_read, delimiter="#")
-                for entry in read_dates:
-                    date_writer.writerow(entry)
         date_instance_test = CsvClassSave(str(data_test), None, True, "#")
         searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
                           '"date" < 06-11-2000': [[], 0], 
-                          '"DATE" = 2024-08-24': [[7], 1],
-                          '"DATE" != 2024-08-21': [list(range(1, 10)), 9],
-                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9], 2],
+                          '"DATE" = 2024-08-24': [[7, 11], 2],
+                          '"DATE" != 2024-08-21': [list(range(1, 10)) + [11], 10],
+                          '"DATE" > 2024-08-21 & "date" <= 2024-08-24': [[7, 9, 11], 3],
                           '"DATE" > 2024-08-21 & "date" <= 2024-08-24~AVG:date': [[0], 1],
                           '"DATE" <= 2024-08-20~MAX:date': [["2024-08-20"], 1],
                           '"DATE" <= 2024-08-20~MIN:date': [["1994-08-26"], 1],
                           '"DATE" <= 2024-08-20~DESC:date': [[1, 8, 5], 3],
                           '"DATE" <= 2024-08-20~ASC:date': [[5, 8, 1], 3],
+                          # now unique automatically returns the count at the end
+                          '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 2], 3],
+                          # if the row that you are using a function on
+                          # is not requested the function won't apply
+                          '[date] "DATE" = 2024-08-24~UNIQUE:age': [[7, 11], 2],
+                          '[date] "DATE" = 2024-08-24~UNIQUE:DATE': [[7, 1], 2],
+                          '"DATE" < 2024-08-24~MAX:JOB': [["Web Developer"], 1],
+                          '"DATE" < 2024-08-24~MIN:JOB': [["HR Coordinator"], 1],
+                          '"DATE" < 2024-08-24~AVG:JOB': [[0], 1],
+                          '"DATE" < 2024-08-24~SUM:JOB': [[0], 1],
+                          '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 4], 5],
+                          '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
+                          '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
                         }
         for query_date, value_date in searching_test.items():
             collect_entries = []
             for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
-                if dates[0] not in ("AVG", "MAX", "MIN"):
+                if dates[0] == "UNIQUE":
+                    collect_entries.append(f"[{dates[-1]}]")
+                elif dates[0] not in ("AVG", "MAX", "MIN", "SUM"):
                     collect_entries.append(dates[0])
                 else:
                     collect_entries.append(f"[{dates[-1]}]")
