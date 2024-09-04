@@ -486,6 +486,8 @@ class CsvClassSave:
                                                         reverse=True if function_match[0] == "DESC" else False)
                                                 except ValueError:
                                                     pass
+                                                else:
+                                                    break
                                             for sorted_item in function_match[1]:
                                                 yield sorted_item
                                     elif len(function_match) == 3:
