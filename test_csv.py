@@ -208,6 +208,14 @@ class TestSingle:
         size: int
         other: str
 
+    @dataclasses.dataclass
+    class DateObjectTest:
+        name: str
+        city: str
+        age: str
+        job: str
+        date: str
+
     arguments = {"start": "-432-3---1-442-3",
                  "end": "1432234131244213",
                  "start_vals": 9,
@@ -441,7 +449,8 @@ class TestSingle:
         sleep(2)
         # test date data on search and operations, accepted format is ISO8601
         # repopulating with new data
-        date_instance_test = CsvClassSave(str(data_test), None, True, "#")
+        new_date_test = self.DateObjectTest("Sara Stew", "Cape Coral", "age", "Google Intern", "WWWWWWWWW")
+        date_instance_test = CsvClassSave(str(data_test), new_date_test, True, "#")
         searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
                           '"date" < 06-11-2000': [[], 0],
                           '"DATE" = 2024-08-24': [[7, 11], 2],
@@ -465,6 +474,8 @@ class TestSingle:
                           '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 4], 5],
                           '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
                           '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
+                          # it returns floats like MAX AVG and SUM
+                          '"INDICE" > 0~MIN:AGE': [[float(22)], 1],
                           }
         for query_date, value_date in searching_test.items():
             collect_entries = []
@@ -478,6 +489,48 @@ class TestSingle:
             collect_entries.pop(0)
             assert len(collect_entries) == value_date[1], f"fallo en cantidad encontrada: {query_date}"
             assert collect_entries == [f"[{val}]" for val in value_date[0]], f"fallo en buscar entrada: {query_date}"
+        # here we make the csv have columns which data that can
+        # be a valid float str or dates changing the results
+        # of some functions
+        date_instance_test.guardar_datos_csv()
+        # making new AVG, SUM, MIX, MAX ASC and DESC test for str
+        # to make sure that they are only applied if all the items
+        # on a same column are str, since the program tries to 
+        # cast into a float or date a str if it can but if the column
+        # later on has something that is not a date or a float the program 
+        # instead of ignore those values should treat all the values in the column
+        # as a str this means return 0 for SUM and AVG even if some of the data
+        # on a column where valid floats or dates and for MIN MAX and DESC if any of
+        # the data is not a float or date then all the data should be treated as str
+        str_date_test = {
+                         # since date is specified for the comparison
+                         # it automatically skips entries with invalid
+                         # dates that's why those are valid
+                         '"DATE" <= 2024-08-20~MAX:DATE': [["2024-08-20"], 1],
+                         '"DATE" <= 2024-08-20~MIN:DATE': [["1994-08-26"], 1],
+                         '"DATE" < 2024-08-24~AVG:AGE': [[(26 + 33 + 28 + 37 + 28)/5], 1],
+                         '"DATE" < 2024-08-24~SUM:AGE': [[float(152)], 1],
+                         # here no date is skipped so we get to an invalid
+                         # one and thus every dates becomes an str for
+                         # the function
+                         '"INDICE" > 0~AVG:AGE': [[0], 1],
+                         '"INDICE" > 0~SUM:AGE': [[0], 1],
+                         '"INDICE" > 0~MIN:AGE': [[22], 1],
+                         '"INDICE" > 0~MAX:AGE': [["age"], 1],
+                         '"INDICE" > 0~MAX:DATE': [["WWWWWWWWW"], 1],
+                         '"INDICE" > 9~ASC:DATE': [[10, 11, 12], 3],
+                         '"INDICE" > 9~DESC:DATE': [[12, 11, 10], 3],
+                         }
+        for multi_type_col_query, str_val in str_date_test.items():
+            get_entries = []
+            for data in date_instance_test.leer_datos_csv(multi_type_col_query, back_up=True):
+                if data[0] not in ("AVG", "MAX", "MIN", "SUM"):
+                    get_entries.append(data[0])
+                else:
+                    get_entries.append(f"[{data[-1]}]")
+            get_entries.pop(0)
+            assert len(get_entries) == str_val[1], f"fallo en cantidad encontrada: {multi_type_col_query}"
+            assert get_entries == [f"[{val}]" for val in str_val[0]], f"fallo en buscar entrada: {multi_type_col_query}"
 
     def test_single_delete(self):
         """comprueba que se borren las entradas especificadas, el comportamiento

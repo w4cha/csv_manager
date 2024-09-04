@@ -54,7 +54,7 @@ class CsvClassSave:
     # in python is an object we use type any for object
     def __init__(self, path_file: str, class_object: Any = None, single: bool = False, col_sep: str = "|",
                  header: tuple[str, str, str] = ("INDICE", "CLASE", "ATRIBUTOS"), exclude: None | tuple = None,
-                 check_hash = True) -> None:
+                 check_hash: bool = True) -> None:
         self.file_path = path_file
         self.object = class_object
         self.single = single
@@ -319,9 +319,9 @@ class CsvClassSave:
                                             if operand == "AVG":
                                                 function_match += [operand, 0, 0, col_index]
                                             elif operand == "MIN":
-                                                function_match += [operand, float("inf"), col_index]
+                                                function_match += [operand, [float("inf"), None], col_index]
                                             elif operand == "MAX":
-                                                function_match += [operand, float("-inf"), col_index]
+                                                function_match += [operand, [float("-inf"), None], col_index]
                                             elif operand == "SUM":
                                                 function_match += [operand, 0, col_index]
                                             elif operand == "UNIQUE":
@@ -390,6 +390,21 @@ class CsvClassSave:
                                                                 f"requeridas LIMIT:{function_match[-1]}")
                                                 elif function_match[0] == "COUNT":
                                                     function_match[-1] += 1
+                                                elif function_match[0] in ("UNIQUE", "PRESENT"):
+                                                    before_len = len(function_match[1])
+                                                    function_match[1].add(row[function_match[-1]])
+                                                    if before_len != len(function_match[1]):
+                                                        function_match[0] = "UNIQUE"
+                                                    else:
+                                                        function_match[0] = "PRESENT"
+                                                elif function_match[0] in ("ASC", "DESC"):
+                                                    if except_col:
+                                                        function_match[1].append(
+                                                            [row[0]] + [row[item] for item in
+                                                                        range(1, len(row)) if
+                                                                        item not in except_col])
+                                                    else:
+                                                        function_match[1].append(row)
                                                 else:
                                                     function_val = row[function_match[-1]]
                                                     for is_type in (float, date.fromisoformat, str):
@@ -398,49 +413,58 @@ class CsvClassSave:
                                                         except ValueError:
                                                             pass
                                                         else:
-                                                            if (function_match[0] == "AVG" 
-                                                                    and isinstance(val_type, float)):
-                                                                function_match[1] += val_type
-                                                                function_match[2] += 1
-                                                            elif function_match[0] in ("ASC", "DESC"):
-                                                                row[function_match[-1]] = val_type
-                                                                if except_col:
-                                                                    function_match[1].append(
-                                                                        [row[0]] + [row[item] for item in
-                                                                                    range(1, len(row)) if
-                                                                                    item not in except_col])
-                                                                else:
-                                                                    function_match[1].append(row)
-                                                            elif function_match[0] in ("UNIQUE", "PRESENT"):
-                                                                before_len = len(function_match[1])
-                                                                function_match[1].add(function_val)
-                                                                if before_len != len(function_match[1]):
-                                                                    function_match[0] = "UNIQUE"
-                                                                else:
-                                                                    function_match[0] = "PRESENT"
+                                                            if (function_match[0] == "AVG" and not 
+                                                                    isnan(function_match[1])):
+                                                                try:
+                                                                    function_match[1] += val_type
+                                                                    function_match[2] += 1
+                                                                except TypeError:
+                                                                    function_match[1] = float("nan")
+                                                                    function_match[2] = 0
                                                             elif function_match[0] == "MAX":
-                                                                if (function_match[1] == float("-inf") 
+                                                                if (function_match[1][0] == float("-inf") 
                                                                         and isinstance(val_type, date)):
-                                                                    function_match[1] = val_type
-                                                                elif (function_match[1] == float("-inf") 
-                                                                      and isinstance(val_type, str)):
-                                                                    function_match[1] = val_type
+                                                                    function_match[1][0] = val_type
                                                                 else:
-                                                                    if val_type > function_match[1]:
-                                                                        function_match[1] = val_type
+                                                                    if function_match[1][0] != "STR":
+                                                                        try:
+                                                                            if val_type > function_match[1][0]:
+                                                                                function_match[1][0] = val_type
+                                                                        except TypeError:
+                                                                            function_match[1][0] = "STR"
+                                                                        if function_match[1][1] is not None:
+                                                                            if function_val > function_match[1][1]:
+                                                                                function_match[1][1] = function_val
+                                                                        else:
+                                                                            function_match[1][1] = function_val
+                                                                    else:
+                                                                        if function_val > function_match[1][1]:
+                                                                            function_match[1][1] = function_val
                                                             elif function_match[0] == "MIN":
-                                                                if (function_match[1] == float("inf") 
+                                                                if (function_match[1][0] == float("inf") 
                                                                         and isinstance(val_type, date)):
-                                                                    function_match[1] = val_type
-                                                                elif (function_match[1] == float("inf") 
-                                                                        and isinstance(val_type, str)):
-                                                                    function_match[1] = val_type
+                                                                    function_match[1][0] = val_type
                                                                 else:
-                                                                    if val_type < function_match[1]:
-                                                                        function_match[1] = val_type
-                                                            elif (function_match[0] == "SUM" 
-                                                                  and isinstance(val_type, float)):
-                                                                function_match[1] += val_type
+                                                                    if function_match[1][0] != "STR":
+                                                                        try:
+                                                                            if val_type < function_match[1][0]:
+                                                                                function_match[1][0] = val_type
+                                                                        except TypeError:
+                                                                            function_match[1][0] = "STR"
+                                                                        if function_match[1][1] is not None:
+                                                                            if function_val < function_match[1][1]:
+                                                                                function_match[1][1] = function_val
+                                                                        else:
+                                                                            function_match[1][1] = function_val
+                                                                    else:
+                                                                        if function_val < function_match[1][1]:
+                                                                            function_match[1][1] = function_val
+                                                            elif (function_match[0] == "SUM" and not 
+                                                                    isnan(function_match[1])): 
+                                                                try:
+                                                                    function_match[1] += val_type
+                                                                except TypeError:
+                                                                    function_match[1] = float("nan")
                                                             break
                                                 if function_match[0] not in ("LIMIT", "UNIQUE"):
                                                     continue
@@ -455,15 +479,24 @@ class CsvClassSave:
                                             yield ["AVG", self.new_head[function_match[-1]],
                                                    function_match[1] / function_match[2] if function_match[2] else 0]
                                         else:
-                                            function_match[1].sort(key=lambda x: x[function_match[2]],
-                                                                   reverse=True if
-                                                                   function_match[0] == "DESC" else False)
+                                            for types_comp in (float, date.fromisoformat, str):
+                                                try:
+                                                    function_match[1].sort(
+                                                        key=lambda x: types_comp(x[function_match[2]]),
+                                                        reverse=True if function_match[0] == "DESC" else False)
+                                                except ValueError:
+                                                    pass
                                             for sorted_item in function_match[1]:
                                                 yield sorted_item
                                     elif len(function_match) == 3:
                                         if function_match[0] not in ("UNIQUE", "PRESENT"):
-                                            yield [function_match[0], self.new_head[function_match[-1]],
-                                                   function_match[1]]
+                                            if function_match[0] not in ("MIN", "MAX"):
+                                                yield [function_match[0], self.new_head[function_match[-1]],
+                                                       function_match[1] if not isnan(function_match[1]) else 0]
+                                            else:
+                                                yield [function_match[0], self.new_head[function_match[-1]],
+                                                       function_match[1][0] if function_match[1][0] != "STR" 
+                                                       else function_match[1][1]]
                                         else:
                                             yield ["UNIQUE", self.new_head[function_match[-1]], len(function_match[1])]
                                     # LIMIT might be able to get to here in is set
