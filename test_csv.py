@@ -15,6 +15,21 @@ except ImportError:
 
 data_test = Path(fr"{Path(__file__).parent}\data_test.csv")
 
+def data_clean_up(single: bool, delimiter: str, data: Path, clean = False):
+    if clean:
+        if single:
+            # on instance creation the backup and original get hash compared to
+            # make the original equal to th backup
+            CsvClassSave(str(data_test), None, single, delimiter)
+        else:
+            CsvClassSave(str(data_test), None, single, delimiter)
+    with open(str(CsvClassSave.backup_single if single else CsvClassSave.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
+        data_writer = csv.writer(pass_data, delimiter=delimiter)
+        with open(str(data), "r", newline="", encoding="utf-8") as has_data:
+            read = csv.reader(has_data, delimiter=delimiter)
+            for line in read:
+                data_writer.writerow(line)
+
 
 class TestBackUpIntegrity:
     """Engloba los test de creación y el mantenimiento de la persistencia de
@@ -105,7 +120,9 @@ class TestAttribute:
     paths = 12, fr"{data_test.parent}\file_test.csv", fr"{data_test.parent}\test.txt"
     single_ = "False"
     col_sep_ = 0, "er"
-    headers = False, ((), ("index",), ("index", "class"), ("index", "class", "attr", "other")), ("index", "class", 3)
+    headers = (False, 
+               ((), ("index",), ("index", "class"), ("index", "class", "attr", "other")), 
+               ("index", "class", 3), (("INICIO", "inicio", "valor"), ("col", "col", "col")),)
     excludes = 15, (), ("wer", ["3"])
     hashed = "no"
 
@@ -163,6 +180,12 @@ class TestAttribute:
         se lance un error"""
         with pytest.raises(ValueError, match="con 3 str"):
             CsvClassSave(str(data_test), None, False, "-", self.headers[2])
+
+    def test_invalid_header_with_repeated_str_values(self):
+        """se chequea que los valores pasados para el header sean todos distintos"""
+        with pytest.raises(ValueError, match="con 3 str distintos"):
+            for item in self.headers[3]:
+                CsvClassSave(str(data_test), None, False, "-", item)
 
     def test_invalid_exclude_type(self):
         """chequeando que si el tipo del atributo exclude no es una tuple
@@ -281,14 +304,7 @@ class TestSingle:
         # to create backup directory
         # cleaning data last test
         # cleaning data in data_test.csv data on the data_test
-        CsvClassSave(str(data_test), None, True, "#")
-        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as pass_data:
-            data_writer = csv.writer(pass_data, delimiter="#")
-            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as has_data:
-                read = csv.reader(has_data, delimiter="#")
-                for line in read:
-                    data_writer.writerow(line)
-
+        data_clean_up(True, "#", self.case_data_single, True)
         single_test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
         for invalid in (8, ["test"], False, {1, 7, 9}, {"test": "no valido"}):
             with pytest.raises(ValueError, match="argumento string_pattern debe ser str"):
@@ -345,10 +361,11 @@ class TestSingle:
              '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
             ('[] "size" > 4 & "difficulty" >= 5000 | '
              '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
-            '[indice] "indice" <= 10': [list(range(1, 11)), 10, 1, ["INDICE", ]],
+            '[indice] "indice" <= 10': [list(range(1, 11)), 10, 1, ["INDICE",]],
             # space inside [] is not permitted
             ('![size  ] "size" > 4 & "difficulty" >= 5000 | '
              '"difficulty" > 6700 & "solving_time" != 4.047'): [[], 0, 7, head_1],
+             # index col is always kept
             ('![indice] "size" > 4 & "difficulty" >= 5000 | '
              '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
             ('![start_] "size" > 4 & "difficulty" >= 5000 | '
@@ -532,22 +549,86 @@ class TestSingle:
             assert len(get_entries) == str_val[1], f"fallo en cantidad encontrada: {multi_type_col_query}"
             assert get_entries == [f"[{val}]" for val in str_val[0]], f"fallo en buscar entrada: {multi_type_col_query}"
 
+    def test_single_update(self):
+        """comprueba que solo sean actualizadas las filas requeridas por la consulta 
+        y solo las columnas especificadas actualizar solo es posible en single=True"""
+        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+        assert "Actualmente esta ocupando un objeto de tipo" in next(CsvClassSave(str(data_test), single=True,
+                                                                                  col_sep="#").actualizar_datos(update_query="UPDATE"))
+        update_date_test = self.DateObjectTest("Sara Stew", "Cape Coral", "30", "Google Intern", "2024-08-29")
+        with pytest.raises(AttributeError, match="no es posible actualizar"):
+            next(CsvClassSave(str(data_test), update_date_test, False, "#").actualizar_datos(update_query="UPDATE"))
+        test_update_instance = CsvClassSave(str(data_test), update_date_test, True, "#")
+        with pytest.raises(ValueError, match="debe ingresar un str"):
+            # you have to use next in generators for the code to start executing
+            next(test_update_instance.actualizar_datos(update_query={1, 4, 6}))
+        invalid_update_queries = {
+            'UPDATE:~': 'error de sintaxis',
+            'UPDATE:~"INDICE"=12 ON "DATE" >= 2024-08-20': 'no se puede actualizar el valor del indice',
+            'UPDATE:~"DATE"=1900-06-06 ON ![DATE#NAME] "DATE" <= 2024-08-20': 'la columna a actualizar debe estar dentro de la consulta',
+            'UPDATE:~"SALARY"=94.00 ON  ': 'la columna a actualizar debe estar dentro de la consulta',
+            'UPDATE:~"CITY"=Santiago ON "DATE" >= 2025-07-04': 'no se encontraron entradas para actualizar',
+            'UPDATE:~"NAME"=NONE ON [NAME#DATE#AGE] "AGA" > 10 & "AGA" < 100': 'error de sintaxis',
+        }
+        for bad_request, message in invalid_update_queries.items():
+            assert message in next(test_update_instance.actualizar_datos(update_query=bad_request)), f"fallo en query {bad_request}"
+
+        valid_update_queries = {
+            # [col] might matter on how the results are returned
+            'UPDATE:~"DATE"=1900-06-06 ON "DATE" <= 2024-08-20': [[1, 5, 8], {5: "1900-06-06"}],
+            # anything that has the string son on it
+            'UPDATE:~"DATE"=2025-01-01 ON son': [[3, 5, 9], {5: "2025-01-01"}],
+            'UPDATE:~"NAME"=Lucas Folch "AGE"=30 ON [NAME#AGE] "INDICE" >= 2 & "INDICE" < 8': [list(range(2,8)), {1: "Lucas Folch", 3: "30"}],
+            'UPDATE:~"NAME"=Joe Biden "JOB"=Old Man ON ![AGE] "JOB" = Project Manager~MIN:DATE': [[5, 9], {1: "Joe Biden", 4: "Old Man"}],
+            'UPDATE:~"NAME"=Musk "JOB"=Conman ON "AGE" > 30~MAX:JOB': [[9], {1: "Musk", 4: "Conman"}],
+            'UPDATE:~"AGE"=70 ON [AGE#NAME] "NAME" = Musk~AVG:JOB': [[9], {3: "70"}],
+            'UPDATE:~"JOB"=Django Developer ON "NAME" = Lucas Folch~UNIQUE:NAME': [[2, 3, 4, 6, 7], {4: "Django Developer"}],
+            'UPDATE:~"CITY"=Nuku\'alofa "JOB"=Tourist ON ![DATE] "INDICE" > 9 | "CITY" = New York~ASC:': [[1, 10, 11], {2: "Nuku\'alofa", 4: "Tourist"}],
+            'UPDATE:~"NAME"=Wes "Name"=Luke ON "AGE" >= 70~DESC:': [[9], {1: "Luke"}],
+            'UPDATE:~"NAME"=Xenon ON [NAME#JOB] "INDICE" = 1~COUNT:': [[1], {1: "Xenon"}],
+            'UPDATE:~"NAME"=Charles "JOB"=Ex-Convict ON ![INDICE] "name" = Xenon~SUM:AGE': [[1], {1: "Charles", 4: "Ex-Convict"}],
+            'UPDATE:~"CITY"=Ankara "CITY"=Ankara ON "CITY" = Philadelphia~LIMIT:2': [[6], {2: "Ankara"}],
+            'UPDATE:~"DATE"=1594-08-15 "NAME"=Rem "JOB"=Oni ON "DATE" <= 2024-08-20': [[1, 8], {1: "Rem", 4: "Oni", 5: "1594-08-15"}],
+            'UPDATE:~"NAME"=Lilith "CITY"=Tokyo "AGE"=100000 "JOB"=Goddess "DATE"=2010-07-11 ON "CITY" = Ankara': [[6], {1: "Lilith", 
+                                                                                                                          2: "Tokyo", 
+                                                                                                                          3: '100000 "JOB"=Goddess "DATE"=2010-07-11'}],
+        }
+        for valid_request, results in valid_update_queries.items():
+            values_updated = []
+            for new_result in test_update_instance.actualizar_datos(update_query=valid_request):
+                values_updated.append(new_result[0])
+                for key, val in results[1].items():
+                    assert new_result[key] == val, f"fallo valor en query {valid_request}"
+            assert values_updated == [f"[{val}]" for val in results[0]], f"fallo entrada en query {valid_request}"
+
+
+    def test_index_write(self):
+        """comprueba que se cree una clase nueva cuando se pasa un csv que no depende de
+        objetos de python y que la clase creada permita agregar y actualizar valores"""
+        write_object = CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+        write_instance = write_object(**{"name": "Finn", "city": "Port Vila", 
+                                         "age": "25", "job": "Developer", "date": "1999-08-17"})
+        test_instance = CsvClassSave(path_file=str(data_test), class_object=write_instance, single=True, col_sep="#")
+        new_entry = test_instance.guardar_datos_csv()
+        assert new_entry == "\nINDICE#NAME#CITY#AGE#JOB#DATE\n[12]#Finn#Port Vila#25#Developer#1999-08-17", f"error al crear entrada {new_entry}"
+        updated_entry = test_instance.actualizar_datos(update_query='UPDATE:~"NAME"=Jake "AGE"=35 ON "INDICE" = 12')
+        assert next(updated_entry) == "[12]#Jake#Port Vila#35#Developer#1999-08-17".split("#"), f"error al actualizar entrada {new_entry}"
+
+
     def test_single_delete(self):
         """comprueba que se borren las entradas especificadas, el comportamiento
-        es igual independiente del modo (single (single=True) or multiple (single=False))"""
+        es igual independiente del modo (single (single=True) o multiple (single=False))
+        para las consultas que no usen DELETE ON (solo modo single=True)"""
         # clean up the data always before an assert
         # putting data back on track
-        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as back_single:
-            single_writer = csv.writer(back_single, delimiter="#")
-            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as single_read:
-                singles = csv.reader(single_read, delimiter="#")
-                for single in singles:
-                    single_writer.writerow(single)
+        # in case a previous test fails
+        data_clean_up(True, "#", self.case_data_single)
         test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
         invalid_delete = ["hola", "size=9", "[:12]", "[1-12-14-15-6-7-9-10-11-2-14]", "[10-]",
-                          "<class 'vehiculo.Bicicleta'>"]
+                          "<class 'vehiculo.Bicicleta'>",
+                          'DELETE ON[solving_time#difficulty#size] "difficulty" > 10 & "difficulty" < 100',]
         for query in invalid_delete:
-            with pytest.raises(ValueError, match="uno de los siguientes formatos"):
+            with pytest.raises(ValueError, match="o escribiendo una consulta usando la palabra clave DELETE"):
                 next(test_instance.borrar_datos(query))
 
         for bad_arg in ((12, True), ("[2:5]", 13), (True, "[2:5]")):
@@ -568,20 +649,38 @@ class TestSingle:
             assert test_instance.current_rows - 1 == value[1], f"fallo en cantidad borrada: {deleted}"
             assert collect_deleted == [f"[{val}]" for val in value[0]], f"fallo en borrar entrada: {deleted}"
 
+        assert next(test_instance.borrar_datos('DELETE ON "INDICE" = 100')) == "no se encontraron entradas para eliminar"
+        assert next(test_instance.borrar_datos('DELETE ON "SIZE" < 4')) == "no se encontraron entradas para eliminar"
+        assert next(test_instance.borrar_datos('DELETE ON [solving_time#difficulty#size] "dificulty" > 10 & "dificulty" < 100')) == "error de sintaxis"
         assert next(test_instance.borrar_datos("borrar todo")) == "todo"
         assert next(test_instance.borrar_datos("borrar todo")) == "nada"
         assert next(test_instance.borrar_datos("[1]")) == "nada"
+        data_clean_up(True, "#", self.case_data_single)
+        # overriding old instance to sync original to backup
+        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
+        valid_query_delete = {
+            ('DELETE ON [START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 '
+             '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:1'): [[5, 6, 20], 17], 
+             'DELETE ON "INDICE" >= 15': [[15, 16, 17], 14],
+             # functions should be ignored when using queries
+             'DELETE ON "SIZE" < 5~SUM:difficulty': [[1, 3, 4], 11],
+             # DELETE ON  is the equivalent to pass " "
+             'DELETE ON 99|': [[4, 6, 11], 8],
+             }
+        for del_query, del_entry in valid_query_delete.items():
+            collect_deleted = []
+            for item in test_instance.borrar_datos(del_query):
+                collect_deleted.append(str(item).split("#")[0])
+            collect_deleted.pop(0)
+            assert test_instance.current_rows - 1 == del_entry[1], f"fallo en cantidad borrada: {del_query}"
+            assert collect_deleted == [f"[{val}]" for val in del_entry[0]], f"fallo en borrar entrada: {del_query}"
+        
 
     def test_pass_object_no_dict(self):
         """chequea que se de una advertencia si se intenta guardar un objeto que no
         soporte __dict__ ya que es lo que se usa para guardar los atributos"""
         # data restoration before the next test is run
-        with open(str(CsvClassSave.backup_single), "w", newline="", encoding="utf-8") as pass_data:
-            data_writer = csv.writer(pass_data, delimiter="#")
-            with open(str(self.case_data_single), "r", newline="", encoding="utf-8") as has_data:
-                read = csv.reader(has_data, delimiter="#")
-                for line in read:
-                    data_writer.writerow(line)
+        data_clean_up(True, "#", self.case_data_single)
         assert "Actualmente esta ocupando un objeto de tipo" in CsvClassSave(str(self.case_data_single), single=True,
                                                                              col_sep="#").guardar_datos_csv()
 
@@ -690,13 +789,7 @@ class TestMultiple:
         """comprobando que la búsqueda de entradas funcione como es debido
         en modo multi o single=False (en general que de resultados distintos en
         ciertas búsquedas con respecto a los que da en modo single)"""
-        create_path_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
-        with open(str(create_path_instance.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
-            data_writer = csv.writer(pass_data, delimiter="|")
-            with open(str(self.case_data_multiple), "r", newline="", encoding="utf-8") as has_data:
-                read = csv.reader(has_data, delimiter="|")
-                for line in read:
-                    data_writer.writerow(line)
+        data_clean_up(False, "|", self.case_data_multiple)
         multi_test_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
         # en modo multiple no hay soporte para operadores como el or y and
         # del modo simple para buscar, aparte de eso la funcionalidad
@@ -724,6 +817,8 @@ class TestMultiple:
         assert local_instance.current_classes == ["<class 'vehiculo.Particular'>", "<class 'vehiculo.Carga'>",
                                                   "<class 'vehiculo.Bicicleta'>", "<class 'vehiculo.Motocicleta'>",
                                                   "<class 'vehiculo.Automovil'>"]
+        with pytest.raises(ValueError, match="introduciendo el nombre completo"):
+                next(local_instance.borrar_datos('DELETE ON "INDICE" > 5'))
         deleted_entries = []
         for item in local_instance.borrar_datos(delete_index="<class 'vehiculo.Particular'>"):
             deleted_entries.append(str(item).split("|")[0])
@@ -739,12 +834,7 @@ class TestMultiple:
         de atributos se debe guardar)
         """
         # restoring last test data changes
-        with open(str(CsvClassSave.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
-            data_writer = csv.writer(pass_data, delimiter="|")
-            with open(str(self.case_data_multiple), "r", newline="", encoding="utf-8") as has_data:
-                read = csv.reader(has_data, delimiter="|")
-                for line in read:
-                    data_writer.writerow(line)
+        data_clean_up(False, "|", self.case_data_multiple)
         local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
         has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
                      "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
