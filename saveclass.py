@@ -5,6 +5,8 @@ from typing import Generator, Any
 from math import isnan
 from pathlib import Path
 from datetime import date
+from keyword import iskeyword
+from dataclasses import make_dataclass
 
 
 # pequeño programa que permite crear, borrar y leer entradas hacia un archivo csv a
@@ -61,10 +63,12 @@ class CsvClassSave:
         self.delimiter = col_sep
         self.header = header
         self.exclude = exclude
-        self.can_save = True
         self.hashing = check_hash
+
+        self.can_save = True
         if "__dict__" not in dir(self.object):
             self.can_save = False
+
         self.accepted_files: tuple[str, str] = (self.file_path,
                                                 str(self.backup_multi if not self.single else self.backup_single))
         # crea el directorio del backup si no existe
@@ -182,9 +186,13 @@ class CsvClassSave:
     @header.setter
     def header(self, value) -> None:
         match value:
+            # check that all names of headers are different
             # this is how you do type pattern matching
             case tuple((str(), str(), str())):
-                self._header = value
+                if len(set([val.lower() for val in value])) == 3:
+                    self._header = value
+                else:
+                    raise ValueError(f"el valor debe ser una tuple con 3 str distintos pero fue {value}")
             case _:
                 raise ValueError(f"el valor debe ser una tuple con 3 str pero este fue {type(value).__name__}: {value}")
 
@@ -228,7 +236,7 @@ class CsvClassSave:
     # raises an StopIteration error and the value of it is the value of the return)
     # and the second value is the type of the value an iterator can accept from outside using
     # the .send() method of a generator
-    def leer_datos_csv(self, search="", back_up=False, escaped=False) -> Generator[list[str], None, str]:
+    def leer_datos_csv(self, search="", back_up=False, escaped=False, query_functions=True) -> Generator[list[str] | str, None, str]:
         """método publico leer_datos_csv
 
         Argumentos:
@@ -237,6 +245,8 @@ class CsvClassSave:
         - back_up es para buscar en el csv de backup envés del original
         - escaped es para saber si se debe escapar algún carácter especial
         en el search str cuando se realize la búsqueda mediante expresiones regulares
+        - query_function es para determinar si se debe aplicar o no las funciones
+        pasadas en una query
 
         Valor de retorno:
 
@@ -302,33 +312,36 @@ class CsvClassSave:
                                     yield next(read)
                                 function_match: list = []
                                 if list_of_match and isinstance(list_of_match[-1], str):
-                                    operand, column, *_ = str(list_of_match.pop()).split(":")
-                                    if operand == "COUNT":
-                                        function_match += ["COUNT", 0]
-                                    elif operand == "LIMIT":
-                                        try:
-                                            limit_result = int(column)
-                                        except ValueError:
-                                            pass
-                                        else:
-                                            if limit_result > 0:
-                                                function_match += ["LIMIT", limit_result + 1]
-                                    elif column and column.upper() in self.new_head:
-                                        col_index = self.new_head.index(str(column).upper())
-                                        if not except_col or col_index not in except_col:
-                                            if operand == "AVG":
-                                                function_match += [operand, 0, 0, col_index]
-                                            elif operand == "MIN":
-                                                function_match += [operand, [float("inf"), None], col_index]
-                                            elif operand == "MAX":
-                                                function_match += [operand, [float("-inf"), None], col_index]
-                                            elif operand == "SUM":
-                                                function_match += [operand, 0, col_index]
-                                            elif operand == "UNIQUE":
-                                                function_match += [operand, set(), col_index]
-                                            elif operand == "ASC" or operand == "DESC":
-                                                header_offset = sum((1 for item in except_col if item < col_index))
-                                                function_match += [operand, [], col_index - header_offset, col_index]
+                                    if query_functions:
+                                        operand, column, *_ = str(list_of_match.pop()).split(":")
+                                        if operand == "COUNT":
+                                            function_match += ["COUNT", 0]
+                                        elif operand == "LIMIT":
+                                            try:
+                                                limit_result = int(column)
+                                            except ValueError:
+                                                pass
+                                            else:
+                                                if limit_result > 0:
+                                                    function_match += ["LIMIT", limit_result + 1]
+                                        elif column and column.upper() in self.new_head:
+                                            col_index = self.new_head.index(str(column).upper())
+                                            if not except_col or col_index not in except_col:
+                                                if operand == "AVG":
+                                                    function_match += [operand, 0, 0, col_index]
+                                                elif operand == "MIN":
+                                                    function_match += [operand, [float("inf"), None], col_index]
+                                                elif operand == "MAX":
+                                                    function_match += [operand, [float("-inf"), None], col_index]
+                                                elif operand == "SUM":
+                                                    function_match += [operand, 0, col_index]
+                                                elif operand == "UNIQUE":
+                                                    function_match += [operand, set(), col_index]
+                                                elif operand == "ASC" or operand == "DESC":
+                                                    header_offset = sum((1 for item in except_col if item < col_index))
+                                                    function_match += [operand, [], col_index - header_offset, col_index]
+                                    else:
+                                        list_of_match.pop()
                                 for row in read:
                                     bool_values: list = []
                                     for element in list_of_match:
@@ -336,7 +349,10 @@ class CsvClassSave:
                                             try:
                                                 head_index = self.new_head.index(element[0])
                                             except IndexError:
-                                                return "error de sintaxis"
+                                                # error if col that logical operator is applied to 
+                                                # is not a valid col name (does not exist)
+                                                yield "error de sintaxis"
+                                                return "sintaxis no valida búsqueda terminada"
                                             # so you can search from index to
                                             if head_index > 0:
                                                 val = row[head_index]
@@ -666,10 +682,12 @@ class CsvClassSave:
         Argumentos:
 
         - delete_index str que especifica que entradas a borrar en modo single = True
-        los valores validos para borrar entradas son 'borrar todo' o alguno de los
-        patrones validos establecidos por el método estático return_pattern, en modo
+        los valores validos para borrar entradas son 'borrar todo', alguno de los
+        patrones validos establecidos por el método estático return_pattern o una query
+        valida para buscar datos que sea de estructura DELETE ON <query búsqueda>. En modo
         single = False también se puede introducir el nombre literal de una clase para
-        borrar todo los miembros de esa clase
+        borrar todo los miembros de esa clase además de 'borrar todo' y patrones definidos
+        en return_pattern
         - rewrite bool que determina si al introducir 'borrar todo' se vuelva a copiar
         los contenidos del backup correspondiente al modo actual
 
@@ -720,7 +738,7 @@ class CsvClassSave:
                 with open(self.file_path, "w", newline="", encoding="utf-8") as class_deleter:
                     class_remover = csv.writer(class_deleter, delimiter=self.delimiter)
                     count: int = 1
-                    row_getter: Generator[list[str], None, str] = self.leer_datos_csv(back_up=True)
+                    row_getter: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
                     class_remover.writerow(next(row_getter))
                     for item in row_getter:
                         if item[1] != delete_index:
@@ -749,7 +767,7 @@ class CsvClassSave:
                     filter_ = csv.writer(write_filter, delimiter=self.delimiter)
                     count: int = 1
                     mark: str = vars_to_delete[-1]
-                    row_generator: Generator[list[str], None, str] = self.leer_datos_csv(back_up=True)
+                    row_generator: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
                     # to not count header
                     filter_.writerow(next(row_generator))
                     for entry in row_generator:
@@ -771,24 +789,133 @@ class CsvClassSave:
                                 count += 1
                             else:
                                 yield f"{self.delimiter}".join(val for val in entry)
+            elif (regex_delete := re.search(r'^DELETE ON (.+?)$', delete_index)) is not None and self.single:
+                delete_on = self.leer_datos_csv(search=regex_delete.group(1), back_up=True, query_functions=False)
+                # header is not required
+                next(delete_on)
+                to_delete: list = []
+                for entry_index in delete_on:
+                    if isinstance(entry_index, str):
+                        yield entry_index
+                        return "sintaxis no valida operación cancelada"
+                    to_delete.append(entry_index[0])
+                if not to_delete:
+                    yield "no se encontraron entradas para eliminar"
+                    return "sintaxis valida pero sin entradas seleccionadas para la operación"
+
+                with open(self.file_path, "w", newline="", encoding="utf-8") as delete_query:
+                    deleter = csv.writer(delete_query, delimiter=self.delimiter)
+                    reader: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
+                    yield f"{self.delimiter}".join([self.header[0], *self.new_head])
+                    deleter.writerow(next(reader))
+                    counter: int  = 1
+                    for entry in reader:
+                        if entry[0] not in to_delete:
+                            entry[0] = f"[{counter}]"
+                            deleter.writerow(entry)
+                            counter += 1
+                        else:
+                            yield f"{self.delimiter}".join(val for val in entry)
             else:
-                raise ValueError("utilize uno de los siguientes formatos para borrar una entrada:\n"
-                                 "[n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice "
-                                 "de lo que desee eliminar"
-                                 f"{'' if self.single else ' o introduciendo el nombre completo de una clase'}")
+                message = """"utilize uno de los siguientes formatos para borrar una entrada:\n
+                              [n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice\n
+                              "de lo que desee eliminar """
+                if not self.single:
+                    raise ValueError(message + "o introduciendo el nombre completo de una clase")
+                else:
+                    raise ValueError(message + " o escribiendo una consulta usando la palabra clave DELETE para selecciones más complejas")
             # deleting all data on backup (is not up to date)
             # synchronizing backup
             # should I use asyncio?
-            count = 0
             with open(str(self.backup_multi if not self.single else self.backup_single),
                       "w", newline="", encoding="utf-8") as write_filter:
                 filter_ = csv.writer(write_filter, delimiter=self.delimiter)
                 for entry in self.leer_datos_csv():
                     filter_.writerow(entry)
-                    count += 1
             if not self.single:
                 self.current_classes.clear()
             self.current_rows = self.__len__()
+
+    def actualizar_datos(self, update_query) -> Generator[list[str] | str, None, str]:
+        """método publico actualizar_datos
+
+        Argumentos:
+
+        - update_query es la str utilizada para determinar que columnas y a que valor
+        actualizarlas y en que filas
+
+        Valor de retorno:
+
+        - un generador que retorna ya sea errores de sintaxis, una advertencia o de una en
+        una las filas que fueron actualizadas
+
+        Excepciones:
+
+        - AttributeError si se intenta ocupar en modo single=False
+        - ValueError si los tipos de los argumentos no son los apropiados
+        """
+        if not self.single:
+            raise AttributeError("no es posible actualizar datos en el modo actual single = True ya que no posee dicha opción")
+        if not self.can_save:
+            yield (f"\nAdvertencia: Actualmente esta ocupando un objeto de tipo {type(self.object).__name__}"
+                   "el cual no posee un __dict__ por lo que es imposible actualizar sus entradas")
+            return "acción denegada"
+        if not isinstance(update_query, str):
+            raise ValueError(
+                f"debe ingresar un str como instrucción para actualizar valores, pero se introdujo {type(update_query).__name__}")
+        # this works but use .strip() on the values to update
+        pattern = r'^UPDATE:~"([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?)(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))? ON (.+?)$'
+        regex_update = re.search(pattern, update_query)
+        if regex_update is not None:
+            value_tokens = list(filter(None, regex_update.groups()))
+            where_update = value_tokens.pop()
+            search_result = self.leer_datos_csv(search=where_update, back_up=True, query_functions=False)
+            head_update = next(search_result)
+            col_index = []
+            row_index = []
+            for update_col in value_tokens:
+                col, col_val  = update_col.split(sep="=", maxsplit=1)
+                # this is mostly to keep the query syntax more consistent
+                # remember that headers are on uppercase
+                col = col.replace('"', '').upper()
+                if col not in head_update:
+                    yield "error de sintaxis la columna a actualizar debe estar dentro de la consulta de búsqueda"
+                    return "sintaxis no valida operación cancelada"
+                # can't be head_update because if is shorter than the unfiltered header of the csv
+                # it is going to end up updating the wrong value
+                val_index = self.new_head.index(col)
+                if not val_index:
+                    yield "error de sintaxis no se puede actualizar el valor del indice"
+                    return "sintaxis no valida operación cancelada"
+                col_index.append((val_index, col_val))
+            # it is safe to pass an exhausted generator to a for loop
+            # the exception is managed automatically
+            for item in search_result:
+                if isinstance(item, str):
+                    yield item
+                    return "sintaxis no valida operación cancelada"
+                row_index.append(item[0])
+            if not row_index:
+                yield "no se encontraron entradas para actualizar"
+                return "sintaxis valida pero sin entradas seleccionadas para la operación"
+            # READ FROM BACKUP AND WRITE TO ORIGINAL
+            # THEN DELETE BACKUP AND WRITE ORIGINAL TO BACKUP
+            with open(self.file_path, "w", newline="", encoding="utf-8") as write_update:
+                updater = csv.writer(write_update, delimiter=self.delimiter)
+                reader: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
+                updater.writerow(next(reader))
+                for count, entry in enumerate(reader, start=1):
+                    if f"[{count}]" in row_index:
+                        for position, new_val in col_index:
+                            entry[position] = new_val
+                        yield entry
+                    updater.writerow(entry)
+            with open(str(self.backup_single), "w", newline="", encoding="utf-8") as rewrite_update:
+                rw_updater = csv.writer(rewrite_update, delimiter=self.delimiter)
+                for entry in self.leer_datos_csv():
+                    rw_updater.writerow(entry)
+        else:
+            yield "error de sintaxis"
 
     # static method
     @staticmethod
@@ -1010,18 +1137,18 @@ class CsvClassSave:
             return True
 
     @classmethod
-    def index(cls, file_path, delimiter, id_present=True) -> None:
+    def index(cls, file_path, delimiter, id_present=True) -> type:
         """ método de clase index
         permite agregar indices con el formato de este programa y
-        limpiar los encabezados par que puedan ser utilizados, siempre
+        crear un objeto para que pueda usarse de intermediario para
+        agregar o actualizar las entradas del archivo, siempre
         asume que el archivo tendrán un encabezado de otra forma los
         resultados serán inesperados, una ves reescrito el archivo este
-        sera copiado al backup_single del programa, idealmente solo para
-        leer archivos csv que no sean generados a base de clases de python,
-        para escribir nuevos datos a este tipo de archivos se debe crear una
-        clase la cual sirva de intermediario para ingresarlos, los
-        caracteres reservados para encabezados son: ,><=|&!":+*-.'#/?, espacios en blanco,
-        etc. (cualquier carácter que no pueda ser usado como nombre de variable o atributo)
+        sera copiado al backup_single del programa, para crear
+        el objeto que permite añadir y actualizar campos se obtienen los nombres
+        de atributos desde el encabezado del archivo pero si este no es valido
+        (tiene cualquier carácter que no pueda ser usado como nombre de variable o atributo 
+        en python) entonces no se podrá crear el objeto y un error es generado
 
         Argumentos:
 
@@ -1032,11 +1159,14 @@ class CsvClassSave:
 
         Valor de retorno:
 
-        - None
+        - un objeto creado de tipo CsvObjectWriter el cual puede ser usado para
+        escribir o actualizar a un csv que no este asociado a una clase de python
 
         Excepciones:
 
-        - ValueError si algún tipo de los argumentos ingresados no fue el correcto
+        - ValueError si algún tipo de los argumentos ingresados no fue el correcto o
+        si el encabezado del archivo tiene nombres de columna que no son nombres de
+        atributos validos en python para crear el objeto
         """
         if not isinstance(id_present, bool):
             raise ValueError(
@@ -1045,10 +1175,12 @@ class CsvClassSave:
         with open(file_path, "r", newline="", encoding="utf-8") as import_:
             new_import = csv.reader(import_, delimiter=new_class.delimiter)
             if id_present:
-                head_file = [re.sub(r'[,><=\|&!\s:"]', "", item).upper() for item in next(new_import)]
+                head_file = [item.upper() for item in next(new_import)]
             else:
-                head_file = ["INDICE", ] + [re.sub(r'[,><=\|&!\s:+*-\.\'#/\?"]', "", item).upper() for item in
+                head_file = ["INDICE", ] + [item.upper() for item in
                                             next(new_import)]
+            if any([not val.isidentifier() or iskeyword(val) for val in head_file[1:]]):
+                raise ValueError("el encabezado del archivo contiene caracteres inválidos para crear variables validas en python")
             with open(new_class.backup_single, "w", newline="", encoding="utf-8") as write_backup:
                 new_back_up = csv.writer(write_backup, delimiter=new_class.delimiter)
                 new_back_up.writerow(head_file)
@@ -1059,7 +1191,8 @@ class CsvClassSave:
                         line[0] = f"[{count}]"
                         new_back_up.writerow(line)
                     else:
-                        new_back_up.writerow([f"[{count}]", ] + line)
+                        new_back_up.writerow([f"[{count}]",] + line)
+            return make_dataclass(cls_name="CsvObjectWriter", fields=[name.lower() for name in head_file[1:]])
 
     def __len__(self) -> int:
         with open(str(self.backup_multi if not self.single else self.backup_single),
