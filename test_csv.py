@@ -7,6 +7,7 @@ import hashlib
 import dataclasses
 
 try:
+    # use pytest <file_to_test>.py to run 
     import pytest
 except ImportError:
     raise ImportError("para ejecutar este test necesita instalar "
@@ -250,6 +251,7 @@ class TestSingle:
 
     case_data_single = Path(fr"{Path(__file__).parent}\data\data_single.csv")
     case_time_data = Path(fr"{Path(__file__).parent}\data\times.csv")
+    case_empty_file = Path(fr"{Path(__file__).parent}\data\empty.csv")
 
     def test_static(self):
         """comprueba que el método estático retorne los resultados
@@ -275,6 +277,9 @@ class TestSingle:
     def test_class_method_index(self):
         """comprueba el funcionamiento del método de clase index para la
         importación de documentos csv"""
+        # test for when you pass an empty .csv
+        with pytest.raises(ValueError, match="No es posible realizar la operación en un archivo sin contenidos"):
+            CsvClassSave.index(file_path=str(self.case_empty_file), delimiter="#")
         for invalid_arg, message in (((r"{data_test.parent}\test.txt", "#", True), "de extension"),
                                      ((None, "d", False), "debe ser str"),
                                      ((r"{data_test.parent}\test.csv", "<", True), "no existe"),
@@ -334,6 +339,10 @@ class TestSingle:
                   '"size" > test': [[], 0],
                   '"size" > 4 & "difficulty" >= 5000 | "difficulty" > 6700 & "solving_time" != 4.047': [[5, 6, 20], 3],
                   '"difficulty" < 6800 & "difficulty" >= 5000 | "size" < 4 & "solving_time" != 4.047': [[20], 1],
+                  # test for [= and ]= operators
+                  '![SOLVING_TIME#START_VALS] "start" [= 11 | "end" ]= 56 & "size" > 4 & "difficulty" <= 5000': [[14, 16], 2],
+                  '"SOLVING_TIME" [= 0.0': [[1, 2, 3, 4, 12, 13, 14, 16], 8],
+                  '"SOLVING_TIME" [= 0.09': [[13, 16], 2],
                   # if you chain more than 4 the last ones get combined into one "solving_time" != (4.047 & "size" < 20)
                   '"size" > 4 & "difficulty" >= 6000 & "difficulty" < 7000 & "solving_time" != 4.047 & "size" < 20': [
                       [10, 20], 2],
@@ -354,6 +363,7 @@ class TestSingle:
         head_3 = ["INDICE", "SOLVING_TIME", "DIFFICULTY", "SIZE"]
         head_4 = ["INDICE", "START", "END"]
         head_5 = ["INDICE", "START", "END", "START_VALS"]
+        head_6 = ["INDICE", "START", "END", "SIZE"]
         special_query = {
             ('"size" > 4 & "difficulty" >= 5000 | '
              '"difficulty" > 6700 & "solving_time" != 4.047'): [[5, 6, 20], 3, 7, head_1],
@@ -402,6 +412,7 @@ class TestSingle:
              '| "difficulty" > 6700 & "solving_time" != 4.047~ASC:start_vals'): [[6, 20, 5], 3, 4, head_5],
             ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
              '| "difficulty" > 6700 & "solving_time" != 4.047~DESC:start_vals'): [[5, 20, 6], 3, 4, head_5],
+             '[START#END#SIZE] "START" ]= | | "END" ]= G~DESC:SIZE': [[5, 1, 4], 3, 4, head_6],
             }
         for exclude_query, values in special_query.items():
             collect_entries = []
@@ -441,6 +452,8 @@ class TestSingle:
              '> 6700 & "solving_time" != 4.047~SUM:start'): [[], 0, 3, head_4],
             ('![START#END] "size" > 4 & "difficulty" >= 5000 | '
              '"difficulty" > 6700 & "solving_time" != 4.047~SUM:size'): [[], 41, 5, head_2],
+             # 0.469, 0.141, 0.125, 0.188 = 0.923 to int is 0 is the target sum
+             '![INDICE] "solving_time" [= 0.4 | "solving_time" [= 0.1~SUM:solving_time': [[], 0, 7, head_1],
             }
 
         for functional_queries, numbers in functional_queries.items():
@@ -463,7 +476,6 @@ class TestSingle:
 
         # this is an implicit test if this method fails then the next assertions will also fails
         CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
-        sleep(2)
         # test date data on search and operations, accepted format is ISO8601
         # repopulating with new data
         new_date_test = self.DateObjectTest("Sara Stew", "Cape Coral", "age", "Google Intern", "WWWWWWWWW")
@@ -479,6 +491,10 @@ class TestSingle:
                           '"DATE" <= 2024-08-20~DESC:date': [[1, 8, 5], 3],
                           '"DATE" <= 2024-08-20~ASC:date': [[5, 8, 1], 3],
                           # now unique automatically returns the count at the end
+                          # the last number in the list inside the list
+                          # is the total amount of entries for [[1, 5, 2], 3] 
+                          # in [1, 5, 2] 2 is the amount of entries (1 and 5) 
+                          # and 3 is the amount of returned values
                           '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 2], 3],
                           # if the row that you are using a function on
                           # is not requested the function won't apply
@@ -492,14 +508,13 @@ class TestSingle:
                           '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
                           '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
                           # it returns floats like MAX AVG and SUM
-                          '"INDICE" > 0~MIN:AGE': [[float(22)], 1],
+                          '"INDICE" > 0~MIN:AGE': [[float(22),], 1],
+                          '"NAME" [= j | "AGE" ]= 8 | "AGE" < 24~UNIQUE:JOB': [[1, 2, 4, 7, 8, 10, 6], 7]
                           }
         for query_date, value_date in searching_test.items():
             collect_entries = []
             for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
-                if dates[0] == "UNIQUE":
-                    collect_entries.append(f"[{dates[-1]}]")
-                elif dates[0] not in ("AVG", "MAX", "MIN", "SUM"):
+                if dates[0] not in ("AVG", "MAX", "MIN", "SUM", "UNIQUE"):
                     collect_entries.append(dates[0])
                 else:
                     collect_entries.append(f"[{dates[-1]}]")
@@ -515,7 +530,7 @@ class TestSingle:
         # on a same column are str, since the program tries to 
         # cast into a float or date a str if it can but if the column
         # later on has something that is not a date or a float the program 
-        # instead of ignore those values should treat all the values in the column
+        # instead of ignoring those values should treat all the values in the column
         # as a str this means return 0 for SUM and AVG even if some of the data
         # on a column where valid floats or dates and for MIN MAX and DESC if any of
         # the data is not a float or date then all the data should be treated as str
@@ -537,6 +552,8 @@ class TestSingle:
                          '"INDICE" > 0~MAX:DATE': [["WWWWWWWWW"], 1],
                          '"INDICE" > 9~ASC:DATE': [[10, 11, 12], 3],
                          '"INDICE" > 9~DESC:DATE': [[12, 11, 10], 3],
+                         # to use ]= or [= on index you pass the number not [n or n]
+                         '"INDICE" ]= 1~MIN:AGE': [[float(28)], 1],
                          }
         for multi_type_col_query, str_val in str_date_test.items():
             get_entries = []
@@ -562,16 +579,55 @@ class TestSingle:
         with pytest.raises(ValueError, match="debe ingresar un str"):
             # you have to use next in generators for the code to start executing
             next(test_update_instance.actualizar_datos(update_query={1, 4, 6}))
+        # TODO TEST %NUM-FORMAT
         invalid_update_queries = {
             'UPDATE:~': 'error de sintaxis',
+            'UPDATE "JOB"= ON "INDICE" = 2': 'error de sintaxis',
             'UPDATE:~"INDICE"=12 ON "DATE" >= 2024-08-20': 'no se puede actualizar el valor del indice',
             'UPDATE:~"DATE"=1900-06-06 ON ![DATE#NAME] "DATE" <= 2024-08-20': 'la columna a actualizar debe estar dentro de la consulta',
             'UPDATE:~"SALARY"=94.00 ON  ': 'la columna a actualizar debe estar dentro de la consulta',
             'UPDATE:~"CITY"=Santiago ON "DATE" >= 2025-07-04': 'no se encontraron entradas para actualizar',
             'UPDATE:~"NAME"=NONE ON [NAME#DATE#AGE] "AGA" > 10 & "AGA" < 100': 'error de sintaxis',
+            'UPDATE:~"DATE"=%MUL:~10 ON "INDICE" = 2': [('solo es posible aplicar una función %ADD o %SUB sobre una fecha '
+                                                        'y su elección fue %MUL entrada [2] no actualizada'), "DATE"],
+            'UPDATE:~"DATE"=%ADD:~-17 ON "INDICE" < 2': [('superado el número de días que se puede añadir o restar a una fecha '
+                                                         '(entre 1 y 1000) ya que su valor fue -17 entrada [1] no actualizada'), "DATE"],
+            'UPDATE:~"DATE"=%ADD:~1001 ON "INDICE" = 9': [('superado el número de días que se puede añadir o restar a una fecha '
+                                                         '(entre 1 y 1000) ya que su valor fue 1001 entrada [9] no actualizada'), "DATE"],
+            # DATE ONLY SUPPORT INT FOR ADD AND SUB
+            'UPDATE:~"DATE"=%SUB:~15.09 ON "INDICE" > 7 & "JOB" = HR Coordinator': [('no se puede aplicar una función que no sea %ADD sobre un str '
+                                                                                    'y su elección fue %SUB entrada [8] no actualizada'), "DATE"],
+            'UPDATE:~"NAME"=%DIV:~11 ON "INDICE" > 7 & "JOB" = HR Coordinator': [('no se puede aplicar una función que no sea %ADD sobre un str '
+                                                                                 'y su elección fue %DIV entrada [8] no actualizada'), "NAME"],
+            'UPDATE:~"JOB"=%COPY:~INDICE ON "NAME" [= Jan': [("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
+                                                             f"debe seleccionar el nombre de una columna, su valor fue INDICE pero las opciones son {test_update_instance.new_head[1:]} "
+                                                              "entrada [2] no actualizada"), "JOB"],
+            'UPDATE:~"CITY"=%COPY:~SALARY ON "NAME" ]= NEZ': [("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
+                                                             f"debe seleccionar el nombre de una columna, su valor fue SALARY pero las opciones son {test_update_instance.new_head[1:]} "
+                                                              "entrada [8] no actualizada"), "CITY"],
+            'UPDATE:~"AGE"=%DIV:~USE:~CITY ON "INDICE" = 5': [('no se puede aplicar una función que no sea %ADD sobre un str '
+                                                               'y su elección fue %DIV entrada [5] no actualizada'), "AGE"],
+            'UPDATE:~"AGE"=%RANDOM-INT:~5.67#CASA ON "INDICE" = 11': [("para usar la función %RANDOM-INT debe pasar dos números enteros como limites inferior "
+                                                                      f"y superior pero introdujo 5.67 y CASA entrada [11] no actualizada"), "AGE"],
+            'UPDATE:~"DATE"=%NUM-FORMAT:~3 ON "INDICE" = 4': [("para usar la función %NUM-FORMAT debe ocupar una columna que contenga valores decimales o enteros "
+                                                               "pero el valor fue de tipo str"), "DATE"],
+            # int("10.01") => ValueError int(10.01) => 10
+            'UPDATE:~"AGE"=%NUM-FORMAT:~10.01 ON "INDICE" = 7': [("para usar la función %NUM-FORMAT debe pasar como argumento un número entero "
+                                                  "pero el valor fue de tipo str"),"AGE"],
+            'UPDATE:~"AGE"=%NUM-FORMAT:~0 ON "INDICE" = 10': [("el segundo argumento para la función %NUM-FORMAT "
+                                             "debe ser un número entre 1 y 25 pero fue 0"), "AGE"],
+            'UPDATE:~"AGE"=%NUM-FORMAT:~-13 ON "INDICE" = 3': [("el segundo argumento para la función %NUM-FORMAT "
+                                                "debe ser un número entre 1 y 25 pero fue -13"), "AGE"],
+            'UPDATE:~"AGE"=%NUM-FORMAT:~26 ON "INDICE" = 2': [("el segundo argumento para la función %NUM-FORMAT "
+                                              "debe ser un número entre 1 y 25 pero fue 26"), "AGE"],
         }
         for bad_request, message in invalid_update_queries.items():
-            assert message in next(test_update_instance.actualizar_datos(update_query=bad_request)), f"fallo en query {bad_request}"
+            update_attempt = next(test_update_instance.actualizar_datos(update_query=bad_request))
+            if isinstance(update_attempt, str):
+                assert message in update_attempt, f"fallo en query {bad_request}"
+            else:
+                assert message[0] in update_attempt["errors"][message[1]], f"fallo en query {bad_request}"
+                assert not update_attempt["old"][message[1]], f"fallo en query {bad_request}"
 
         valid_update_queries = {
             # [col] might matter on how the results are returned
@@ -589,17 +645,72 @@ class TestSingle:
             'UPDATE:~"NAME"=Charles "JOB"=Ex-Convict ON ![INDICE] "name" = Xenon~SUM:AGE': [[1], {1: "Charles", 4: "Ex-Convict"}],
             'UPDATE:~"CITY"=Ankara "CITY"=Ankara ON "CITY" = Philadelphia~LIMIT:2': [[6], {2: "Ankara"}],
             'UPDATE:~"DATE"=1594-08-15 "NAME"=Rem "JOB"=Oni ON "DATE" <= 2024-08-20': [[1, 8], {1: "Rem", 4: "Oni", 5: "1594-08-15"}],
-            'UPDATE:~"NAME"=Lilith "CITY"=Tokyo "AGE"=100000 "JOB"=Goddess "DATE"=2010-07-11 ON "CITY" = Ankara': [[6], {1: "Lilith", 
-                                                                                                                          2: "Tokyo", 
-                                                                                                                          3: '100000 "JOB"=Goddess "DATE"=2010-07-11'}],
+            ('UPDATE:~"NAME"=Lilith "CITY"=Tokyo "AGE"=100000 "JOB"=Goddess ' 
+             '"DATE"=2010-07-11 ON "CITY" = Ankara'): [[6], {1: "Lilith", 2: "Tokyo", 3: "100000", 4: 'Goddess "DATE"=2010-07-11'}],
+            'UPDATE:~"NAME"=%UPPER "AGE"=%LOWER "CITY"=%LOWER ON "INDICE" = 8~SUM:AGE': [[8], {1: "REM", 2: "san diego", 3: "28"}],
+            'UPDATE:~"NAME"=%CAPITALIZE "CITY"=%TITLE ON "INDICE" = 8': [[8], {1: "Rem", 2: "San Diego"}],
+            'UPDATE:~"NAME"=%REPLACE:~a#a ON "INDICE" = 8': [[8], {1: "Rem"}],
+            'UPDATE:~"NAME"=%REPLACE:~e#a "AGE"=%ADD:~100.2 "AGE"=%FLOOR "AGE"=%REPLACE:~8#R ON "INDICE" = 8': [[8], {1: "Ram", 3: "12R"}],
+            # SINCE THE OPERATIONS ARE DONE AS A FLOAT THE RESULTS ARE RETURNED WITH A .0 IF THEY WERE INT BEFORE
+            'UPDATE:~"AGE"=%ADD:~45 "AGE"=%REPLACE:~R#1 "AGE"=%MUL:~17 ON "INDICE" = 8': [[8], {3: "206465.0"}],
+            'UPDATE:~"DATE"=%ADD:~971 "DATE"=%SUB:~15 "DATE"=%ADD:~#1998-11-27 ON "DATE" <= 1594-08-15': [[1, 8], {5: "1597-03-28#1998-11-27"}],
+            'UPDATE:~"AGE"=100000 "AGE"=%DIV:~0 "AGE"=%ADD:~0.4 "AGE"=%CEIL ON "name" = Lilith': [[6], {3: "100001"}],
+            # TEST FLOAT ON INF AND NAN
+            'UPDATE:~"AGE"=%MUL:~-inf "AGE"=%ADD:~inf ON "CITY" [= san': [[7, 8], {3: "nan"}],
+            'UPDATE:~"AGE"=inf "AGE"=%MUL:~-inf ON "INDICE" = 8': [[8], {3: "-inf"}],
+            'UPDATE:~"AGE"=%UPPER "AGE"=%ADD:~inf ON "INDICE" [= 8': [[8], {3: "nan"}],
+            'UPDATE:~"NAME"=MARK ON "INDICE" ]= 1': [[1, 11], {1: "MARK"}],
         }
         for valid_request, results in valid_update_queries.items():
             values_updated = []
             for new_result in test_update_instance.actualizar_datos(update_query=valid_request):
-                values_updated.append(new_result[0])
+                values_updated.append(new_result["result"][0])
                 for key, val in results[1].items():
-                    assert new_result[key] == val, f"fallo valor en query {valid_request}"
+                    assert new_result["result"][key] == val, f"fallo valor en query {valid_request} {new_result['result']}"
             assert values_updated == [f"[{val}]" for val in results[0]], f"fallo entrada en query {valid_request}"
+
+        # structure first item no updated rows, second number of errors and third the updated values
+        parcial_valid_queries = {'UPDATE:~"AGE"=%ADD:~BAD ON [1-3-5-7-9-11]': [[], [], {3: [f"{x}BAD" for x in [28, 45, 37, 40, 33, 29]]}],
+                                 'UPDATE:~"AGE"=%DIV:~2 ON [1-3-5-7-9-11]': [[1, 3, 5, 7, 9, 11], [6], {3: []}],
+                                 # all arithmetic operations return a float use ceil or floor to get back to int
+                                 'UPDATE:~"AGE"=%MUL:~1 ON "INDICE" > 0': [[1, 3, 5, 7, 9, 11], [6], {3: [str(float(x)) for x in [34, 22, 31, 28, 26]]}],
+                                 'UPDATE:~"AGE"=%DIV:~3 "AGE"=%SUB:~4 "AGE"=%CEIL ON "INDICE" > 0': [[1, 3, 5, 7, 9, 11], [18], {3: [str(x) for x in [8, 4, 7, 6, 5]]}],
+                                 'UPDATE:~"AGE"=%MUL:~2.1 "AGE"=%FLOOR ON [2-4-6-8-10]': [[], [], {3: [str(x) for x in [16, 8, 14, 12, 10]]}],
+                                 'UPDATE:~"AGE"=%MUL:~-1 "DATE"=%ADD:~10500 ON [2-4-6-8-10-11]': [[11], [7], {3: [str(float(x)) for x in [-16, -8, -14, -12, -10]]}],
+                                 }
+        # index can be use as a away to reset the current data
+        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+        update_test_two = CsvClassSave(str(data_test), update_date_test, True, "#")
+        for parcial_query, parcial_result in parcial_valid_queries.items():
+            total_invalids = parcial_result[1][0] if parcial_result[1] else 0
+            for query_result in update_test_two.actualizar_datos(parcial_query):
+                if isinstance(query_result, dict):
+                    total_invalids -= sum([len(val) for val in query_result["errors"].values()])
+                    if query_result["result"][0] in [f"[{item}]" for item in parcial_result[0]]:
+                        # 0 is index, 1 is message if none where updated
+                        assert query_result["result"][1] == "ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas", f"fallo valor en query {parcial_query} {query_result['result']}"
+                    else: 
+                        for key, val in parcial_result[2].items():
+                            assert query_result["result"][key] in val, f"fallo valor en query {parcial_query} {query_result}"           
+                else:
+                    raise AssertionError(f"resultado de tipo inesperado para query {parcial_query} ya que el resultado fue de tipo {type(query_result).__name__} {query_result}")
+            assert total_invalids == 0, (f"fallo en cantidad de errores se esperaban {parcial_result[1][0] if parcial_result[1] else 0} "
+                                         f"pero hubo {parcial_result[1][0] - total_invalids if parcial_result[1] else 0} en {parcial_query}")
+        
+        # UPDATE TO "" AND SEARCH WHEN THE VALUE IS EMPTY
+        # THE UPDATE NEW VALUE CANNOT BE EMPTY IS NOT RECOGNIZED BY THE REGEX
+        # CHECK DIFFERENCE BETWEEN USING BACKUP TRUE AND FALSE
+        # FOR INTEGRITY ALWAYS TRY TO USE THE BACKUP TRUE
+        # UPDATE:~"AGE"=%SUB:~<other-col-name>
+
+        # REALLY IMPORTANT TO MAKE THE UPDATE VALID YOU NEED TO CONSUME THE 
+        # UPDATE ITERATOR COMPLETELY FIRST
+        for _ in update_test_two.actualizar_datos('UPDATE:~"JOB"=  ON "INDICE" = 2 | "INDICE" = 11'):
+            pass
+        rows = update_test_two.leer_datos_csv('"JOB" =  ', back_up=True)
+        next(rows)
+        assert next(rows)[0] == "[2]", "fallo en actualizar y buscar 2"
+        assert next(rows)[0] == "[11]", "fallo en actualizar y buscar 11"  
 
 
     def test_index_write(self):
@@ -612,8 +723,83 @@ class TestSingle:
         new_entry = test_instance.guardar_datos_csv()
         assert new_entry == "\nINDICE#NAME#CITY#AGE#JOB#DATE\n[12]#Finn#Port Vila#25#Developer#1999-08-17", f"error al crear entrada {new_entry}"
         updated_entry = test_instance.actualizar_datos(update_query='UPDATE:~"NAME"=Jake "AGE"=35 ON "INDICE" = 12')
-        assert next(updated_entry) == "[12]#Jake#Port Vila#35#Developer#1999-08-17".split("#"), f"error al actualizar entrada {new_entry}"
+        expected = next(updated_entry)["result"] 
+        assert expected == "[12]#Jake#Port Vila#35#Developer#1999-08-17".split("#"), f"error al actualizar entrada {'#'.join(expected)}"
 
+        invalid_combinations = [(set(), []), ((1,), "HOLA"), 
+                                ({}, 12.6), ([], []), ({}, {})]
+        for extra, excluded in invalid_combinations:
+            with pytest.raises(ValueError, match="pero su argumento fue de tipo"):
+                CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=extra, exclude=excluded)
+
+        # the program first exclude the cols and then add the new ones
+        # so this ({"UNIVERSITY": "MIT", "JOB": " "}, ["JOB", "NAME"]) does not
+        # trow an error
+        invalid_new_col_names = [({"SALARY": "", "NAME": "NULL"}, None),
+                                 ({"SALARY": "", "salary": "NULL"}, ["name"])]
+        for new_col, removed_col in invalid_new_col_names:
+            with pytest.raises(ValueError, match="los encabezados no pueden tener nombres repetidos para las columnas"):
+                CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=new_col, exclude=removed_col)
+
+
+        all_exclude_col_object = CsvClassSave.index(file_path=str(self.case_time_data), 
+                                              delimiter="#", id_present=False, exclude=["INDICE", "NAME", "Job", "DATE", "city", "aGe"])
+        test_instance_2 = CsvClassSave(path_file=str(data_test), class_object=all_exclude_col_object(), single=True, col_sep="#")
+
+        result_instance_2 = test_instance_2.leer_datos_csv()
+        assert next(result_instance_2) == ["INDICE"], "fallo en encabezado"
+        assert len(next(result_instance_2)) == 1, "fallo en cantidad esperada"
+
+        added_col_object = CsvClassSave.index(file_path=str(self.case_time_data), 
+                                              delimiter="#", id_present=False, exclude=["city",], extra_columns={"SALARY": "", 
+                                                                                                                 "TAX": "25",
+                                                                                                                 "TOTAL": "0", 
+                                                                                                                 "CITY": " "})
+        new_col_object = added_col_object(**{"name": "Lian", 
+                                             "age": 31,
+                                             "job": "DevOps",
+                                             "date": "2016-07-24",
+                                             "salary": 2500,
+                                             "tax": 15,
+                                             "total": 2500 - 2500 * 0.15,
+                                             "city": "Ohio",})
+        test_instance_3 = CsvClassSave(path_file=str(data_test), class_object=new_col_object, single=True, col_sep="#")
+        for value in test_instance_3.leer_datos_csv(search='[SALARY#CITY] "INDICE" > 0~UNIQUE:SALARY'):
+            # for this case with unique only one result is expected
+            if value[0] not in ("UNIQUE", "INDICE"):
+                assert value[0] in [f"[{i}]" for i in range(1, 2)], f"fallo en cantidad encontrada {value}"
+                assert all([val == "VOID" for val in value[1:]])
+        assert test_instance_3.guardar_datos_csv() == ("\nINDICE#NAME#AGE#JOB#DATE#SALARY#TAX#TOTAL#CITY\n[12]"
+                                                     "#Lian#31#DevOps#2016-07-24#2500#15#2125.0#Ohio")
+        queries = [
+            # cant pass float to random-int
+            'UPDATE:~"SALARY"=%RANDOM-INT:~4560#900 "TOTAL"=%COPY:~SALARY "TOTAL"=%MUL:~USE:~TAX "TOTAL"=%DIV:~100 ON "INDICE" < 11',
+            'UPDATE:~"TOTAL"=%MUL:~-1 "TOTAL"=%ADD:~USE:~SALARY "TOTAL"=%FLOOR ON "INDICE" < 11',
+        ]
+        for request in queries:
+            for _ in test_instance_3.actualizar_datos(update_query=request):
+                pass
+
+        result_instance_3 = test_instance_3.leer_datos_csv('"indice" < 11')
+        next(result_instance_3)
+        for value in result_instance_3:
+            assert value[-1] == "VOID"
+            assert int(value[5]) <= 4560
+            assert int(value[5]) >= 900
+            assert int(value[7]) <= 3420
+            assert int(value[7]) >= 675
+
+        # TEST FOR NEW INDEX FEATURES WITH A CSV ALREADY INDEXED
+        write_object_with_index = CsvClassSave.index(file_path=str(self.case_data_single), delimiter="#", 
+                                                     extra_columns={"time_difficulty_ratio": ""}, exclude=["start", "start", "end",])
+        index_instance = write_object_with_index(**{"start_vals": 90, "solving_time": 603.60, "difficulty": 736425, "size": 16, "time_difficulty_ratio": 0.000820})
+        test_instance_indexed = CsvClassSave(path_file=str(data_test), class_object=index_instance, single=True, col_sep="#")
+        test_result = [0.16, 1.216, 0.286, 0.308, 0.001, 0.0, 0.011, 0.047, 0.03, 0.015, 0.035, 0.608, 0.176, 
+                       0.267, 0.099, 0.261, 0.087, 0.067, 0.029, 0.014]
+        update_query = ('UPDATE:~"time_difficulty_ratio"=%COPY:~start_vals "time_difficulty_ratio"=%DIV:~USE:~difficulty '
+                       '"time_difficulty_ratio"=%NUM-FORMAT:~3 ON "INDICE" > 0')
+        for next_test, next_result in zip(test_instance_indexed.actualizar_datos(update_query=update_query), test_result, strict=True):
+            assert next_test["result"][-1] == f"{next_result:.3f}"
 
     def test_single_delete(self):
         """comprueba que se borren las entradas especificadas, el comportamiento
@@ -666,14 +852,15 @@ class TestSingle:
              'DELETE ON "SIZE" < 5~SUM:difficulty': [[1, 3, 4], 11],
              # DELETE ON  is the equivalent to pass " "
              'DELETE ON 99|': [[4, 6, 11], 8],
+             'DELETE ON "SOLVING_TIME" [= 0.0 | "START" ]= f': [[1, 3, 5, 6, 7,], 3],
              }
         for del_query, del_entry in valid_query_delete.items():
             collect_deleted = []
             for item in test_instance.borrar_datos(del_query):
                 collect_deleted.append(str(item).split("#")[0])
             collect_deleted.pop(0)
-            assert test_instance.current_rows - 1 == del_entry[1], f"fallo en cantidad borrada: {del_query}"
             assert collect_deleted == [f"[{val}]" for val in del_entry[0]], f"fallo en borrar entrada: {del_query}"
+            assert test_instance.current_rows - 1 == del_entry[1], f"fallo en cantidad borrada: {del_query}"
         
 
     def test_pass_object_no_dict(self):

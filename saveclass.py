@@ -1,13 +1,13 @@
 import csv
 import re
 import hashlib
-from typing import Generator, Any
-from math import isnan
+from typing import Generator, Callable, Any
+from math import isnan, ceil, floor
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 from keyword import iskeyword
 from dataclasses import make_dataclass
-
+from random import randint
 
 # pequeño programa que permite crear, borrar y leer entradas hacia un archivo csv a
 # partir de los valores de una clase
@@ -116,6 +116,8 @@ class CsvClassSave:
         # our backup must be wipe out and rebuild every time the
         # program runs to support writing to more than one fixed
         # csv file
+        # if self.hashing is set to false the len of the current
+        # contents of the backup is use
         else:
             if not self.single:
                 self.current_classes: list = []
@@ -276,7 +278,7 @@ class CsvClassSave:
                         vals_to_search: list = [num for num in to_search[-1] if self.current_rows >= num >= 0]
                         if not vals_to_search:
                             operation = "-"
-                            vals_to_search = [0, ]
+                            vals_to_search = [0,]
                         if operation == ":":
                             if len(vals_to_search) == 1:
                                 vals_to_search.append(self.current_rows)
@@ -344,6 +346,16 @@ class CsvClassSave:
                                         list_of_match.pop()
                                 for row in read:
                                     bool_values: list = []
+                                    # add function to get the last or first letter and write test
+                                    # [= is the str star with operator and ]= is the str end with operator
+                                    # for a = "hola" a[5] gives index error but a[5:] or a[5:10] gives ""
+                                    operation_hash_table: dict[str, Callable] = {
+                                    ">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
+                                    "<": lambda x, y: x < y, ">": lambda x, y: x > y,
+                                    "=": lambda x, y: x == y, "!=": lambda x, y: x != y,
+                                    "[=": lambda x, y: str(y).lower() in str(x)[0:len(str(y))].lower(), 
+                                    "]=": lambda x, y: str(y).lower() in str(x)[-len(str(y)):].lower(),
+                                    }
                                     for element in list_of_match:
                                         if isinstance(element, list):
                                             try:
@@ -357,27 +369,39 @@ class CsvClassSave:
                                             if head_index > 0:
                                                 val = row[head_index]
                                             else:
+                                                # for suing [= ]= with index you don't have to consider []
                                                 val = re.sub(r"[\[\]]", "", row[head_index])
-                                            try:
-                                                row_val, expected_val = float(val), float(element[-1])
-                                            except ValueError:
-                                                pass
+                                            # should always be present on dict no need for get
+                                            parse_function: Callable = operation_hash_table[element[1]] 
+                                            if element[1] in ("]=", "[=",):
+                                                # this operator only accept values as str no matter if both can
+                                                # be numbers of dates otherwise when parsing to float the comparison
+                                                # may be False when is True
+                                                try:
+                                                    bool_values.append(parse_function(val, element[-1]))
+                                                except TypeError:
+                                                    bool_values.append(False)
                                             else:
-                                                bool_values.append(element[1](row_val, expected_val))
-                                                continue
-                                            try:
-                                                # the only standard I will support
-                                                row_time = date.fromisoformat(val) 
-                                                expected_time = date.fromisoformat(element[-1])
-                                            except ValueError:
-                                                pass
-                                            else:
-                                                bool_values.append(element[1](row_time, expected_time))
-                                                continue
-                                            try:
-                                                bool_values.append(element[1](val, element[-1]))
-                                            except TypeError:
-                                                bool_values.append(False)
+                                                try:
+                                                    row_val, expected_val = float(val), float(element[-1])
+                                                except ValueError:
+                                                    pass
+                                                else:
+                                                    bool_values.append(parse_function(row_val, expected_val))
+                                                    continue
+                                                try:
+                                                    # the only standard I will support
+                                                    row_time = date.fromisoformat(val) 
+                                                    expected_time = date.fromisoformat(element[-1])
+                                                except ValueError:
+                                                    pass
+                                                else:
+                                                    bool_values.append(parse_function(row_time, expected_time))
+                                                    continue
+                                                try:
+                                                    bool_values.append(parse_function(val, element[-1]))
+                                                except TypeError:
+                                                    bool_values.append(False)
                                         else:
                                             bool_values.append(element)
                                     if not bool_values:
@@ -836,7 +860,7 @@ class CsvClassSave:
                 self.current_classes.clear()
             self.current_rows = self.__len__()
 
-    def actualizar_datos(self, update_query) -> Generator[list[str] | str, None, str]:
+    def actualizar_datos(self, update_query) -> Generator[dict | str, None, str]:
         """método publico actualizar_datos
 
         Argumentos:
@@ -856,6 +880,8 @@ class CsvClassSave:
         """
         if not self.single:
             raise AttributeError("no es posible actualizar datos en el modo actual single = True ya que no posee dicha opción")
+        if not self.current_rows:
+            raise ValueError("no es posible actualizar si no hay valore disponibles")
         if not self.can_save:
             yield (f"\nAdvertencia: Actualmente esta ocupando un objeto de tipo {type(self.object).__name__}"
                    "el cual no posee un __dict__ por lo que es imposible actualizar sus entradas")
@@ -864,30 +890,36 @@ class CsvClassSave:
             raise ValueError(
                 f"debe ingresar un str como instrucción para actualizar valores, pero se introdujo {type(update_query).__name__}")
         # this works but use .strip() on the values to update
-        pattern = r'^UPDATE:~"([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?)(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))? ON (.+?)$'
+        pattern = (r'^UPDATE:~"([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?)(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?'
+                   r'(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))? ON (.+?)$')
         regex_update = re.search(pattern, update_query)
         if regex_update is not None:
             value_tokens = list(filter(None, regex_update.groups()))
             where_update = value_tokens.pop()
-            search_result = self.leer_datos_csv(search=where_update, back_up=True, query_functions=False)
-            head_update = next(search_result)
-            col_index = []
-            row_index = []
+            search_result: Generator[list[str] | str, None, str] = self.leer_datos_csv(search=where_update, back_up=True, query_functions=False)
+            head_update: list[str] = next(search_result)
+            col_index: list = []
+            row_index: list = []
+            update_functions_with_args: str = r'^%(?:(REPLACE|RANDOM-INT):~(.+?)#(.+))|%(?:(ADD|SUB|MUL|DIV|NUM-FORMAT):~(.+))$'
             for update_col in value_tokens:
                 col, col_val  = update_col.split(sep="=", maxsplit=1)
                 # this is mostly to keep the query syntax more consistent
                 # remember that headers are on uppercase
-                col = col.replace('"', '').upper()
+                col: str = col.replace('"', '').upper()
                 if col not in head_update:
                     yield "error de sintaxis la columna a actualizar debe estar dentro de la consulta de búsqueda"
                     return "sintaxis no valida operación cancelada"
                 # can't be head_update because if is shorter than the unfiltered header of the csv
                 # it is going to end up updating the wrong value
-                val_index = self.new_head.index(col)
+                val_index: int = self.new_head.index(col)
                 if not val_index:
                     yield "error de sintaxis no se puede actualizar el valor del indice"
                     return "sintaxis no valida operación cancelada"
-                col_index.append((val_index, col_val))
+                if (val_function := re.search(update_functions_with_args, col_val)) is not None:
+                    branch_groups = list(filter(None, val_function.groups()))
+                    col_index.append((val_index, [f"%{branch_groups[0]}", *branch_groups[1:]]))
+                else:
+                    col_index.append((val_index, col_val))
             # it is safe to pass an exhausted generator to a for loop
             # the exception is managed automatically
             for item in search_result:
@@ -900,20 +932,176 @@ class CsvClassSave:
                 return "sintaxis valida pero sin entradas seleccionadas para la operación"
             # READ FROM BACKUP AND WRITE TO ORIGINAL
             # THEN DELETE BACKUP AND WRITE ORIGINAL TO BACKUP
+            update_functions: dict[str, Callable] = {
+                "%UPPER": lambda x: str(x).upper(), "%LOWER": lambda x: str(x).lower(), 
+                "%TITLE": lambda x: str(x).title(), "%CAPITALIZE": lambda x: str(x).capitalize(),
+                "%REPLACE": lambda x, old, new: str(x).replace(old, new),
+                "%ADD": lambda x, y: str(x + y), "%SUB": lambda x, y: str(x - y),
+                "%MUL": lambda x, y: str(x * y), "%DIV": lambda x, y: str(x) if not y else str(x/y),
+                "%RANDOM-INT": lambda x, y: str(randint(x, y)) if x < y else str(randint(y, x)),
+                "%CEIL": lambda x: str(ceil(x)), "%FLOOR": lambda x: str(floor(x)),
+                "%NUM-FORMAT": lambda x, y: f"{x:.{y}f}",}
+            
+            # for the case that any value was not updated due to impossible update function
+            # use due to incorrect expected types for arguments
+            was_updated: int = 0
             with open(self.file_path, "w", newline="", encoding="utf-8") as write_update:
                 updater = csv.writer(write_update, delimiter=self.delimiter)
                 reader: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
                 updater.writerow(next(reader))
                 for count, entry in enumerate(reader, start=1):
                     if f"[{count}]" in row_index:
+                        # make this the return value, if str is yield create a new key with
+                        # the col name and set its value to list, you should use a list in case
+                        # one col has multiple errors, by convention col names always in uppercase
+                        # IF error is present you delete the last old if no old is found then that row do not suffered
+                        # any changes
+                        operations_status: dict[str, list | dict[str, list]] = {"result": [], "errors": {}, "old": {}}
                         for position, new_val in col_index:
-                            entry[position] = new_val
-                        yield entry
+                            # start appending the old value and remove it if an error is appended
+                            if operations_status["old"].get(self.new_head[position], None) is None:
+                                operations_status["old"][self.new_head[position]] = [entry[position],]
+                            else:
+                                operations_status["old"][self.new_head[position]].append(entry[position])
+                            if operations_status["errors"].get(self.new_head[position], None) is None:
+                                operations_status["errors"][self.new_head[position]] = []
+                            if new_val in ("%UPPER", "%LOWER", "%TITLE", "%CAPITALIZE"):
+                                entry[position] = update_functions[new_val](entry[position])
+                                was_updated += 1
+                            # NAN AND INF DO NOT PASS THIS TRY THEY RAISE VALUE ERROR
+                            elif new_val in ("%CEIL", "%FLOOR"):
+                                try:
+                                    entry[position] = update_functions[new_val](float(entry[position]))
+                                except ValueError:
+                                    operations_status["old"][self.new_head[position]].pop()
+                                    operations_status["errors"][self.new_head[position]].append(f"solo es posible aplicar la función {new_val} a números y su valor fue {entry[position]}")
+                                else:
+                                    was_updated += 1
+                            elif isinstance(new_val, list):
+                                if new_val[0] in ("%REPLACE",):
+                                    entry[position] = update_functions[new_val[0]](entry[position], *new_val[1:])
+                                    was_updated += 1
+                                elif new_val[0] == "%RANDOM-INT":
+                                    try:
+                                        limit_1 = int(new_val[1])
+                                        limit_2 = int(new_val[-1])
+                                    except ValueError:
+                                        operations_status["old"][self.new_head[position]].pop()
+                                        operations_status["errors"][self.new_head[position]].append(("para usar la función %RANDOM-INT debe pasar dos números enteros como limites inferior "
+                                                                                                    f"y superior pero introdujo {new_val[1]} y {new_val[-1]} entrada [{count}] no actualizada"))
+                                    else:
+                                        entry[position] = update_functions["%RANDOM-INT"](limit_1, limit_2)
+                                        was_updated += 1
+                                elif new_val[0] == "%NUM-FORMAT":
+                                    parse_values: list = []
+                                    for count, callable_item, argument_item in ((0, float, entry[position]), (1, int, new_val[-1])):
+                                        descriptor: str = "ocupar una columna que contenga valores decimales o enteros" if not count else "pasar como argumento un número entero"
+                                        try:
+                                            parsed_val: float | int = callable_item(argument_item)
+                                        except ValueError:
+                                            operations_status["old"][self.new_head[position]].pop()
+                                            operations_status["errors"][self.new_head[position]].append((f"para usar la función %NUM-FORMAT debe {descriptor} "
+                                                                                                         f"pero el valor fue de tipo {type(argument_item).__name__}"))
+                                        else: 
+                                            parse_values.append(parsed_val)
+                                    if len(parse_values) == 2:
+                                        # consider for future release a config file to 
+                                        # allow easier manipulation of global variables like 25
+                                        # (formatting limit for float)
+                                        # PASSING 0 TO %INT-FORMAT IS LIKE USING %CEIL range is 1 to 25
+                                        # since we already have a floor function
+                                        if not (25 >= parse_values[-1] > 0):
+                                            operations_status["old"][self.new_head[position]].pop()
+                                            operations_status["errors"][self.new_head[position]].append(("el segundo argumento para la función %NUM-FORMAT "
+                                                                                                        f"debe ser un número entre 1 y 25 pero fue {parse_values[-1]}"))
+                                        else:
+                                            entry[position] = update_functions[new_val[0]](*parse_values)
+                                            was_updated += 1
+                                else:
+                                    # CHECK IF IS FLOAT OR STR TO DO THE REQUIRED OPERATIONS
+                                    # TEST ON REPLACE IN FLOAT AND THEN IN THAT FLOAT TEST ONE OF THE OTHER FUNCTIONS
+                                    # CHECK IF NO ENTRIES WHERE UPDATED DUE TO NOT MEETING THE CONDITIONS FOR THE
+                                    # FUNCTIONS
+                                    # you can do operations between dates but is better to do operations
+                                    # between dates and umbers since you can't sum dates but you can sum and
+                                    # subtract numbers from dates
+                                    # test for float when is nan and float if div is passed a 0
+                                    # test if it fails for a column but it does not for another
+
+                                    # this code is for allowing to do arithmetics with another value of the same row
+                                    value_for_col: str = new_val[-1]
+                                    if (use_another := re.search(r"^USE:~(.+)$", new_val[-1])) is not None:
+                                        # to not consider the index
+                                        if (other_col_val := use_another.group(1).upper()) in self.new_head[1:]:
+                                            value_for_col: str = entry[self.new_head.index(other_col_val)]
+                                        else:
+                                            operations_status["old"][self.new_head[position]].pop()
+                                            operations_status["errors"][self.new_head[position]].append(("el selector USE:~ solo se puede usar para pasar como argumento el valor de otra columna en la fila a la función "
+                                                                                                f"seleccionada por lo que el valor debe ser el nombre de una columna ({self.new_head[1:]}) pero fue {other_col_val}"))
+                                            continue
+                                    for possibly_type in ([float, float], [date.fromisoformat, int], [str, str]):
+                                        try:
+                                            cast_current_value: float | date | str = possibly_type[0](entry[position])
+                                            cast_function_value: float | int | str = possibly_type[1](value_for_col)
+                                        except ValueError:
+                                            pass
+                                        else:
+                                            if isinstance(cast_current_value, float):
+                                                # nan and inf operations are defined internally for float
+                                                entry[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
+                                                was_updated += 1
+                                            elif isinstance(cast_current_value, date):
+                                                if new_val[0] in ("%ADD", "%SUB"):
+                                                    if 0 < cast_function_value <= 1_000:
+                                                        entry[position] = update_functions[new_val[0]](cast_current_value, timedelta(days=cast_function_value))
+                                                        was_updated += 1
+                                                    else:
+                                                        operations_status["old"][self.new_head[position]].pop()
+                                                        operations_status["errors"][self.new_head[position]].append(("superado el número de días que se puede añadir o restar a una fecha "
+                                                                                                                     f"(entre 1 y 1000) ya que su valor fue {cast_function_value} entrada [{count}] no actualizada"))
+                                                else:
+                                                    operations_status["old"][self.new_head[position]].pop()
+                                                    operations_status["errors"][self.new_head[position]].append(("solo es posible aplicar una función %ADD o %SUB sobre una fecha "
+                                                                                                                 f"y su elección fue {new_val[0]} entrada [{count}] no actualizada"))
+                                            elif isinstance(cast_current_value, str):
+                                                if new_val[0] == "%ADD":
+                                                    entry[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
+                                                    was_updated += 1
+                                                else:
+                                                    operations_status["old"][self.new_head[position]].pop()
+                                                    operations_status["errors"][self.new_head[position]].append(("no se puede aplicar una función que no sea %ADD sobre un str "
+                                                                                                                f"y su elección fue {new_val[0]} entrada [{count}] no actualizada"))
+                                            break
+                            # using regex is better for case insensitive col name reference handling
+                            elif (copy_value := re.search(r"^%COPY:~(.+)$", new_val)) is not None:
+                                if (target_copy := copy_value.group(1).upper()) in self.new_head[1:]:
+                                    entry[position] = entry[self.new_head.index(target_copy)]
+                                    was_updated += 1
+                                else:
+                                    operations_status["old"][self.new_head[position]].pop()
+                                    operations_status["errors"][self.new_head[position]].append(("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
+                                                                                                f"debe seleccionar el nombre de una columna, su valor fue {target_copy} pero las opciones son {self.new_head[1:]} "
+                                                                                                f"entrada [{count}] no actualizada"))
+                            else:
+                                entry[position] = new_val
+                                was_updated += 1
+                        # fix this because if there is a str message then the entry is going to be
+                        # pass to the user even if no changed was made (all cols yielded a str) or
+                        # if only some cols where updated
+                        # if all entries update have errors then we do not have old values since 
+                        # they are still the same and in result we let know that no update was done
+
+                        if sum(len(old_column) for old_column in operations_status["old"].values()):
+                            operations_status["result"] = entry
+                        else:
+                            operations_status["result"] = [entry[0], "ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas"]
+                        yield operations_status
                     updater.writerow(entry)
-            with open(str(self.backup_single), "w", newline="", encoding="utf-8") as rewrite_update:
-                rw_updater = csv.writer(rewrite_update, delimiter=self.delimiter)
-                for entry in self.leer_datos_csv():
-                    rw_updater.writerow(entry)
+            if was_updated:
+                with open(str(self.backup_single), "w", newline="", encoding="utf-8") as rewrite_update:
+                    rw_updater = csv.writer(rewrite_update, delimiter=self.delimiter)
+                    for entry in self.leer_datos_csv():
+                        rw_updater.writerow(entry)
         else:
             yield "error de sintaxis"
 
@@ -979,16 +1167,13 @@ class CsvClassSave:
             raise AttributeError("opción de filtrado por selector lógico no disponible en modo single = False")
         if not isinstance(string_pattern, str):
             raise ValueError(
-                f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")
-        operation_hash_table = {">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
-                                "<": lambda x, y: x < y, ">": lambda x, y: x > y,
-                                "=": lambda x, y: x == y, "!=": lambda x, y: x != y}
-        query_regex: str = (r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?]+)" '
-                            r'(>=|>|<=|<|=|!=) (.+?)')
+                f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")       
+        query_regex: str = (r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?\]]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?\[\]]+)" '
+                            r'(>=|>|<=|<|=|!=|\[=|\]=) (.+?)')
         query_regex += r"(?: (\||&) "
-        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?]+)" (>=|>|<=|<|=|!=) (.+?))?'
+        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=) (.+?))?'
                                             for _ in range(0, 3)])
-        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?]+)*))?$'
+        query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?\[\]]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
         if new_pattern is not None:
             valid_tokens = list(filter(None, new_pattern.groups()))
@@ -998,7 +1183,7 @@ class CsvClassSave:
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
-                if exclude in ("<=", ">=", ">", "<", "=", "!="):
+                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]="):
                     exclude_group.pop()
                     break
                 else:
@@ -1022,7 +1207,7 @@ class CsvClassSave:
                 if isinstance(query, list) and query:
                     if str(query[0]).upper() in self.new_head:
                         try:
-                            sub_queries.append([str(query[0]).upper(), operation_hash_table[query[1]], query[2]])
+                            sub_queries.append([str(query[0]).upper(), query[1], query[2]])
                         # query has syntax error that produce
                         # operations like a > 2 to end like a >
                         except IndexError:
@@ -1078,7 +1263,11 @@ class CsvClassSave:
         """
         if self.single:
             raise AttributeError("operación no disponible en modo single = True")
-        if not self.current_rows:
+        # at lest there must be a header and 1 entry
+        # to prevent StopIteration when using next
+        # just in case since the code below (class_name not in self.current_classes)
+        # could catch the error went only you have the header (self.current_rows == 1) in a file 
+        if self.current_rows < 2:
             return False
         if isinstance(destination, str):
             valid_path = Path(destination)
@@ -1136,8 +1325,9 @@ class CsvClassSave:
                         f"de formato en los atributos en: {next_values}")
             return True
 
+    # TODO IMPLEMENT LOGIC THAT ALLOWS TO ADD NEW COLUMNS UPON CREATION
     @classmethod
-    def index(cls, file_path, delimiter, id_present=True) -> type:
+    def index(cls, file_path, delimiter, id_present=True, extra_columns = None, exclude = None) -> type:
         """ método de clase index
         permite agregar indices con el formato de este programa y
         crear un objeto para que pueda usarse de intermediario para
@@ -1156,6 +1346,8 @@ class CsvClassSave:
         - delimiter: el delimitador del archivo csv actual
         - id_present: bool el cual indica que si solo se debe reescribir los id o
         si hay que crearlos desde cero
+        - extra_columns: dict con las columnas a añadir al archivo y su valor por defecto
+        - exclude: list con las columnas a excluir del archivo
 
         Valor de retorno:
 
@@ -1171,15 +1363,58 @@ class CsvClassSave:
         if not isinstance(id_present, bool):
             raise ValueError(
                 f"el tipo esperado para el argumento id_present es bool pero fue {type(id_present).__name__}")
+        new_cols = []
+        default_vals = []
+        excluded = []
+        if extra_columns is not None:
+            if isinstance(extra_columns, dict):
+                new_cols = [str(key).upper() for key in extra_columns.keys()]
+                default_vals = [str(value) if str(value) not in (" ", "") else "VOID" for value in extra_columns.values()]
+            else:
+                raise ValueError("si quiere añadir nuevas columnas debe pasar un argumento de tipo dict en extra_columns donde las llaves"
+                                 "sean el nombre de la columna y el valor el valor por defecto que tendrá cada "
+                                 f"fila para esa columna pero su argumento fue de tipo {type(extra_columns).__name__}")
+        if exclude is not None:
+            if isinstance(exclude, list):
+                excluded.extend(set(str(val).upper() for val in exclude))
+            else:
+                raise ValueError("para excluir columnas existentes debe pasar un objeto de tipo list al argumento exclude que "
+                                 f"contenga el nombre de las columnas a pasar pero su argumento fue de tipo {type(exclude).__name__}")
+        # FOR EMPTY CSV FILE
+        # you can't get the len by this method since is not going to give back the len
+        # of the current file but the one already present in the backup
+        # we use new_class mostly for file_path validation 
         new_class = cls(file_path, None, True, delimiter, check_hash=False)
         with open(file_path, "r", newline="", encoding="utf-8") as import_:
             new_import = csv.reader(import_, delimiter=new_class.delimiter)
+            try:
+                file_header = next(new_import)
+            except StopIteration:
+                raise ValueError("No es posible realizar la operación en un archivo sin contenidos")
+            # IN BOTH CASES THE FIRST ITEM OF THE HEAD IS PASS APART FROM THE REST TO PREVENT
+            # THE USER FROM EXCLUDING THE INDEX MANUALLY
+            # IF YOU EXCLUDE EVERYTHING THE INDEX IS ALL YOU'RE GOING TO GET BACK
             if id_present:
-                head_file = [item.upper() for item in next(new_import)]
+                # like this only we exclude from the existing header so we avoid the case where the same name col
+                # name is passed to the extra_columns and exclude arguments the intended behavior is to exclude
+                # what already in the header not the extra columns that you pass after
+                new_head: list[str] = [item.upper() for item in file_header[1:] if item.upper() not in excluded]
+                head_file: list[str] = ["INDICE",] + file_header[1:]
             else:
-                head_file = ["INDICE", ] + [item.upper() for item in
-                                            next(new_import)]
-            if any([not val.isidentifier() or iskeyword(val) for val in head_file[1:]]):
+                new_head: list[str] = [item.upper() for item in file_header if item.upper() not in excluded]
+                head_file: list[str] = ["INDICE",] + file_header
+             # TODO TEST WITH INDICE BUT EXCLUDING INDICE AND ID_PRESENT FALSE SHOULD RAISE NO ERROR
+            excluded_values = [head_file.index(col) for col in head_file if col.upper() in excluded]
+            head_file = [head_file[0],] + new_head
+            # you need to calculate the index before adding new cols to the head
+            # if id_present == False the INDICE becomes a reserved col name and valueError is raised
+            head_file.extend(new_cols)
+            if len(head_file) != len(set(head_file)):
+                raise ValueError(f"los encabezados no pueden tener nombres repetidos para las columnas ({head_file})")
+            # to not exclude index
+            if 0 in excluded_values:
+                excluded_values = [val for val in excluded_values if val != 0]
+            if any([not val.isidentifier() or iskeyword(val) for val in head_file]):
                 raise ValueError("el encabezado del archivo contiene caracteres inválidos para crear variables validas en python")
             with open(new_class.backup_single, "w", newline="", encoding="utf-8") as write_backup:
                 new_back_up = csv.writer(write_backup, delimiter=new_class.delimiter)
@@ -1189,9 +1424,11 @@ class CsvClassSave:
                         break
                     if id_present:
                         line[0] = f"[{count}]"
-                        new_back_up.writerow(line)
+                        line = [value for value in line if line.index(value) not in excluded_values]
+                        new_back_up.writerow(line + default_vals)
                     else:
-                        new_back_up.writerow([f"[{count}]",] + line)
+                        line = [f"[{count}]",] + line
+                        new_back_up.writerow([value for value in line if line.index(value) not in excluded_values] + default_vals)
             return make_dataclass(cls_name="CsvObjectWriter", fields=[name.lower() for name in head_file[1:]])
 
     def __len__(self) -> int:
