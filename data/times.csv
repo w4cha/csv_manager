@@ -1,4 +1,4 @@
-INDEX#NANE#CITY#AGE#JOB#DATE
+INDEX#NAME#CITY#AGE#JOB#DATE
 [1]#John Doe#New York#29#Software Engineer#2024-08-20
 [2]#Jane Smith#Los Angeles#34#Graphic Designer#2024-08-29
 [3]#Michael Johnson#Chicago#45#Data Analyst#2024-08-28
@@ -9,3 +9,4 @@ INDEX#NANE#CITY#AGE#JOB#DATE
 [8]#Linda Martinez#San Diego#28#HR Coordinator#2022-08-23
 [9]#Robert Anderson#Dallas#33#Financial Advisor#2024-08-22
 [10]#Jessica Thomas#San Jose#26#Web Developer#2024-08-21
+[11]#Keith Zorn#Oregon#29#Customer Support#2024-08-24
