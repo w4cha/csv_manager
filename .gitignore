@@ -4,7 +4,11 @@ env
 __pycache__
 
 #ignore txt
-*.txt
+*test.txt
 
 #ignore csv
 *.csv
+
+#ignore multi
+csvmulti.py
+test_csv_multi.py
