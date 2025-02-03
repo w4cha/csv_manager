@@ -1,9 +1,8 @@
-from saveclass import CsvClassSave, DataExportError
+from saveclass import BaseCsvManager, SingleCsvManager
 from pathlib import Path
 from time import sleep
 import shutil
 import csv
-import hashlib
 import dataclasses
 
 try:
@@ -14,208 +13,136 @@ except ImportError:
                       "el paquete pytest, use pip install pytest "
                       "para instalarlo, pagina paquete https://docs.pytest.org/en/stable/index.html")
 
-data_test = Path(fr"{Path(__file__).parent}\data_test.csv")
 
-def data_clean_up(single: bool, delimiter: str, data: Path, clean = False):
-    if clean:
-        if single:
-            # on instance creation the backup and original get hash compared to
-            # make the original equal to th backup
-            CsvClassSave(str(data_test), None, single, delimiter)
-        else:
-            CsvClassSave(str(data_test), None, single, delimiter)
-    with open(str(CsvClassSave.backup_single if single else CsvClassSave.backup_multi), "w", newline="", encoding="utf-8") as pass_data:
-        data_writer = csv.writer(pass_data, delimiter=delimiter)
-        with open(str(data), "r", newline="", encoding="utf-8") as has_data:
-            read = csv.reader(has_data, delimiter=delimiter)
-            for line in read:
-                data_writer.writerow(line)
-
+# IMPORTANT this are the name attributes you should refer to
+# if you want to change the attribute value on an instance
+# file_name, current_class, delimiter and exclude
 
 class TestBackUpIntegrity:
     """Engloba los test de creación y el mantenimiento de la persistencia de
     datos de los archivos csv usados como backup por el programa"""
-    back_up = Path(fr"{Path(__file__).parent}\backup\backup_multi.csv"), Path(
-        fr"{Path(__file__).parent}\backup\backup_single.csv")
+    back_up = Path(fr"{Path(__file__).parent}\backup\dir_test.csv")
 
     def test_creates_backup_directory(self):
         """Verificación de que si el directorio y los archivos de backup
         no existen que sean creados"""
-        if (back_dir := Path(self.back_up[0].parent)).is_dir():
+        if (back_dir := Path(self.back_up.parent)).is_dir():
             shutil.rmtree(str(back_dir))
             sleep(2)
-        with open(str(data_test), "w", encoding="utf-8") as _:
-            pass
-        CsvClassSave(str(data_test), single=False)
-        CsvClassSave(str(data_test), single=True)
-        sleep(2)
-        assert self.back_up[0].is_file(), f"el archivo {self.back_up[0].name} no fue creado"
-        CsvClassSave(str(data_test), single=True)
-        sleep(2)
-        assert self.back_up[1].is_file(), f"el archivo {self.back_up[1].name} no fue creado"
-
-    def test_data_gets_rebuild_from_backup(self):
-        """Prueba que en caso de que el archivo csv del usuario y su backup
-        actual (el tipo usado dependerá de si el programa
-        esta en modo single o no) difieran en su contenido se
-        copien los contenidos del backup de vuelta al del usuario para
-        que vuelvan a tener el mismo contenido"""
-        rows = [["INDICE", "CLASE", "ATRIBUTOS"],
-                ["[1]", "<class 'sudoku.Solution.SudokuSolution'>",
-                 ("start: 11223344|||, end: 1234342121434312, "
-                  "start_vals: 4, solving_time: 0.016, difficulty: 25, size: 4")],
-                ["[2]", "<class 'sudoku.Solution.SudokuSolution'>",
-                 "start: ---5-127995--863-4-74-92-8---945--2-735-29-6---8-6359786----74---327--56-27--4-3-, "
-                 "end: 386541279952786314174392685619457823735829461248163597861935742493278156527614938, "
-                 "start_vals: 45, solving_time: 0.0, difficulty: 37, size: 9"],
-                ["[3]", "<class 'sudoku.Solution.SudokuSolution'>",
-                 "start: 356c7b8eb2d9|1b5g7abdd1ef|4164dcf3|1c22538591f6|317g9aacdfge|2542e8g7|5b657fa8c2g9|"
-                 "1e3d689bfa|6a748c9da1b7g8|"
-                 "2c4a7281cbffg6|1d245889b3db|768f94agb9ecf7|2f325e96bgc9dae5f4g1|2g697dde|164d5faeb1d8|"
-                 "7592bfc4edgg, end: 4d561cbef72"
-                 "39g8ab3e7g6a289dc1f54g8f1947d56aecb32c2a93f8514bg7e6d39184dg6ac57f2bef5b2ce1a936d48g7"
-                 "a7c4b5f3g8e261d9e6dg2897bf4153ac"
-                 "2b635a4cd17fg9e89cga7321e58bd4f6d47f8ge9c236ba15518edb6f4g9a2c738f"
-                 "2ce73b6dg9a5411g35a9d47bc8e62f6a4df2cg3e15879b7e9b61582af43dcg,"
-                 " start_vals: 96, solving_time: 59.938, difficulty: 97934, size: 16"]]
-        for val, option in zip(self.back_up, [False, True]):
-            with open(str(data_test), "w", encoding="utf-8", newline="") as write:
-                cont_w = csv.writer(write, delimiter="#")
-                cont_w.writerows(rows)
-            with open(str(val), "w", encoding="utf-8", newline="") as write:
-                cont_w = csv.writer(write, delimiter="#")
-                cont_w.writerows(rows)
-            hash_list: list = []
-            for files in (data_test, str(val)):
-                hex_val = self.hash_file(str(files))
-                if hex_val not in hash_list:
-                    hash_list.append(hex_val)
-            if len(hash_list) != 1:
-                raise ValueError("HUBO UN PROBLEMA CON EL HASH DE LOS ARCHIVOS AL REALIZAR EL TEST")
-            CsvClassSave(str(data_test), col_sep="#", single=option)
-            with open(str(val), "w", encoding="utf-8", newline="") as write:
-                cont_w = csv.writer(write, delimiter="#")
-                cont_w.writerows(rows[0:2])
-            # to see the change on the file
-            sleep(2)
-            CsvClassSave(str(data_test), col_sep="#", single=option)
-            new_hash = self.hash_file(str(data_test))
-            sleep(2)
-            assert new_hash not in hash_list, "el hash del archivo principal no cambio al modificarse el backup"
-        shutil.rmtree(str(self.back_up[0].parent))
-
-    @staticmethod
-    def hash_file(file: str) -> str:
-        hash_file = hashlib.sha256()
-        buffer_size = bytearray(128 * 1024)
-        buffer_view = memoryview(buffer_size)
-        with open(file, 'rb', buffering=0) as file_hash:
-            for chunk_ in iter(lambda: file_hash.readinto(buffer_view), 0):
-                hash_file.update(buffer_view[:chunk_])
-        return hash_file.hexdigest()
+        SingleCsvManager(file_name="dir_test")
+        sleep(1)
+        assert self.back_up.is_file(), f"el archivo {self.back_up.name} no fue creado"
 
 
 class TestAttribute:
     """contiene los test para comprobar que solo se acepten los valores
-    correctos a la hora de inicializar la clase CsvClassSave"""
-    paths = 12, fr"{data_test.parent}\file_test.csv", fr"{data_test.parent}\test.txt"
-    single_ = "False"
+    correctos a la hora de inicializar la clase BaseCsvManager o a la hora
+    de cambiar sus atributos de clase"""
+
+    class AttrTesting:
+        pass
+
+    # class object can be None is th only exception where it can be an instance instead of a class
+    class_object = (1, [], {}, True, 5.7, "instance", AttrTesting())
     col_sep_ = 0, "er"
     headers = (False, 
                ((), ("index",), ("index", "class"), ("index", "class", "attr", "other")), 
                ("index", "class", 3), (("INICIO", "inicio", "valor"), ("col", "col", "col")),)
     excludes = 15, (), ("wer", ["3"])
-    hashed = "no"
 
-    def test_path_invalid_type(self):
-        """chequeando que si el tipo del atributo path_file no es str
+    def test_rows_range(self):
+        """ test para asegurar que no se pase un argumento de tipo o valor
+        incorrecto cuando se quiera cambiar el número de filas máximas por archivo"""
+        # test for incorrect type arguments
+        # remember that bool is a subclass of int
+        for val_type in ["s", [], {}, 12.78, 15.0]:
+            with pytest.raises(ValueError, match=f"debe ser un int pero fue {type(val_type).__name__}"):
+                BaseCsvManager.max_row_limit = val_type
+
+        # test for values out of range
+        for val in [-14, -1, 50_001, 100_000]:
+            with pytest.raises(ValueError, match=f"pero su valor fue {val}"):
+                BaseCsvManager.max_row_limit = val
+
+    def test_col_range(self):
+        """ test para asegurar que no se pase un argumento de tipo o valor
+        incorrecto cuando se quiera cambiar el número de columnas máximas por archivo"""
+        # test for incorrect type arguments
+        for val_type in ["P", (), set(), float("-inf"), float("nan")]:
+            with pytest.raises(ValueError, match=f"debe ser un int pero fue {type(val_type).__name__}"):
+                BaseCsvManager.max_col_limit = val_type
+
+        # test for values out of range
+        for val in [-150, 0, 26, 100]:
+            with pytest.raises(ValueError, match=f"pero su valor fue {val}"):
+                BaseCsvManager.max_col_limit = val
+
+    def test_invalid_backup_dir(self):
+        # no se recomienda cambiar el directorio si ya hay uno creado 
+        # con otros csv ya que no se podrá acceder a ellos a menos 
+        # que se vuelva al directorio anterior
+        """ chequea que no se pueda pasar un directorio que no existe si
+        se desea cambiar la ubicación donde se crean los backups"""
+        for val_type in [False, (), set(), 12, "my_path"]:
+            with pytest.raises(ValueError, match=f"debe ser Path pero fue {type(val_type).__name__}"):
+                BaseCsvManager.backup = val_type
+
+        # test for non existent directory
+        with pytest.raises(ValueError, match="debe ser uno valido"):
+            BaseCsvManager.backup = Path(fr"{Path(__file__).parent}\mis_backups")
+    
+    def test_invalid_filename_type(self):
+        """ chequea que el argumento pasado sea del tipo correcto"""
+        for invalid in [True, 12, {}, [], self.AttrTesting()]:
+            with pytest.raises(ValueError, match="debe ser str pero fue"):
+                BaseCsvManager(file_name=invalid)
+
+    def test_invalid_filename_name(self):
+        """ chequea que el nombre que se va usar para el archivo
+        en el backup tenga los caracteres validos"""
+        for invalid in ["file_test.csv", "#ARCHIVO", "csv respaldo", "nombre_valido_pero_muy_largo"]:
+            with pytest.raises(ValueError, match=r"letras mayúsculas y minúsculas \(a-z pero no ñ\)"):
+                BaseCsvManager(file_name=invalid)
+
+    def test_invalid_object(self):
+        """ chequea que si se pasa una instancia envés de una clase se genere un error"""
+        for invalid in self.class_object:
+            with pytest.raises(ValueError, match="debe ser un objeto (o None)"):
+                BaseCsvManager("dir_test", invalid)
+
+    def test_invalid_delimiter_type(self):
+        """chequeando que si el tipo requerido para el atributo delimiter no es str
         se lance un error"""
         with pytest.raises(ValueError, match="debe ser str"):
-            CsvClassSave(self.paths[0])
+            BaseCsvManager("dir_test", None, self.col_sep_[0])
 
-    def test_path_not_present(self):
-        """chequeando que si la ruta asociada al atributo path_file no existe
-        se lance un error"""
-        with pytest.raises(ValueError, match="no existe"):
-            CsvClassSave(self.paths[1])
-
-    def test_path_incorrect_ext(self):
-        """chequeando que si la ruta asociada al atributo path_file no es de extension .csv
-        se lance un error"""
-        with pytest.raises(ValueError, match="de extension"):
-            CsvClassSave(self.paths[2])
-
-    def test_invalid_single(self):
-        """chequeando que si el tipo requerido para el atributo single no es bool
-        se lance un error"""
-        with pytest.raises(ValueError, match="debe ser bool"):
-            CsvClassSave(str(data_test), None, self.single_)
-
-    def test_invalid_col_sep_type(self):
-        """chequeando que si el tipo requerido para el atributo col_sep no es str
-        se lance un error"""
-        with pytest.raises(ValueError, match="debe ser str"):
-            CsvClassSave(str(data_test), None, False, self.col_sep_[0])
-
-    def test_invalid_col_sep_len(self):
-        """chequeando que si el atributo col_sep contiene más de dos caracteres
+    def test_invalid_delimiter_len(self):
+        """chequeando que si el atributo delimiter contiene más de dos caracteres
         se lance un error"""
         with pytest.raises(ValueError, match="contener solo un carácter"):
-            CsvClassSave(str(data_test), None, False, self.col_sep_[1])
-
-    def test_invalid_header_type(self):
-        """chequeando que si el tipo requerido para el atributo header no es tuple
-        se lance un error"""
-        with pytest.raises(ValueError, match="ser una tuple"):
-            CsvClassSave(str(data_test), None, False, "-", self.headers[0])
-
-    def test_invalid_header_with_less_than_3_str(self):
-        """chequeando que si el atributo header no es una tuple con 3 str
-        se lance un error"""
-        with pytest.raises(ValueError, match="con 3 str"):
-            for item in self.headers[1]:
-                CsvClassSave(str(data_test), None, False, "-", item)
-
-    def test_invalid_header_with_not_only_str(self):
-        """chequeando que si el atributo header no es una tuple con solo str
-        se lance un error"""
-        with pytest.raises(ValueError, match="con 3 str"):
-            CsvClassSave(str(data_test), None, False, "-", self.headers[2])
-
-    def test_invalid_header_with_repeated_str_values(self):
-        """se chequea que los valores pasados para el header sean todos distintos"""
-        with pytest.raises(ValueError, match="con 3 str distintos"):
-            for item in self.headers[3]:
-                CsvClassSave(str(data_test), None, False, "-", item)
+            BaseCsvManager("dir_test", None, self.col_sep_[1])
 
     def test_invalid_exclude_type(self):
         """chequeando que si el tipo del atributo exclude no es una tuple
         se lance un error"""
         with pytest.raises(ValueError, match="ser una tuple o None"):
-            CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[0])
+            BaseCsvManager("dir_test", None, "-", self.excludes[0])
 
     def test_invalid_exclude_len(self):
         """chequeando que si el atributo exclude es una tuple vacía
         se lance un error"""
         with pytest.raises(ValueError, match="al menos un str"):
-            CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[1])
+            BaseCsvManager("dir_test", None, "-", self.excludes[1])
 
     def test_invalid_exclude_content_type(self):
         """chequeando que si el atributo exclude contiene no solo str
         se lance un error"""
         with pytest.raises(ValueError, match="todos los valores de la tuple"):
-            CsvClassSave(str(data_test), None, False, "-", ("indice", "clase", "parámetros"), self.excludes[2])
-
-    def test_invalid_hashing_type(self):
-        """chequeando que si el atributo check_hash no es bool
-        se lance un error"""
-        with pytest.raises(ValueError, match="debe ser bool"):
-            CsvClassSave(str(data_test), None, False, ",", ("indice", "clase", "parámetros"), ("valores",), self.hashed)
+            BaseCsvManager("dir_test", None, "-", self.excludes[2])
 
 
-# CsvClassSave on single mode
-class TestSingle:
-    """Engloba los test del programa cuando el mismo se ejecuta en modo single=True"""
+class TestCsvClassSave:
+    """ Engloba los test del programa cuando se usa la clase SingleCsvManager"""
 
     # to test object with dict but
     # no matching values for current
@@ -240,6 +167,13 @@ class TestSingle:
         job: str
         date: str
 
+    @dataclasses.dataclass
+    class MovieObjectTest:
+        entry: int
+        release: int
+        title: str
+        income: int
+
     arguments = {"start": "-432-3---1-442-3",
                  "end": "1432234131244213",
                  "start_vals": 9,
@@ -248,51 +182,69 @@ class TestSingle:
                  "size": 4,
                  "other": "nada"
                  }
-
+    # lista de archivos que se ocupan como datos o casos para realizar los test
     case_data_single = Path(fr"{Path(__file__).parent}\data\data_single.csv")
     case_time_data = Path(fr"{Path(__file__).parent}\data\times.csv")
     case_empty_file = Path(fr"{Path(__file__).parent}\data\empty.csv")
+    case_invalid_name = Path(fr"{Path(__file__).parent}\data\invalid name.csv")
+    case_different_index_name = Path(fr"{Path(__file__).parent}\data\movies.csv")
+    case_misplaced_index_col = Path(fr"{Path(__file__).parent}\data\species.csv")
 
-    def test_static(self):
-        """comprueba que el método estático retorne los resultados
+    def test_static_pattern(self):
+        """ comprueba que el método estático return_pattern retorne los resultados
         esperados (comportamiento no difiere en modo multi)"""
         for case in (True, 12, {"a": 5}, ["no", ], ("no",), set()):
             with pytest.raises(ValueError, match="debe ingresar un str"):
-                CsvClassSave.return_pattern(case)
-        assert CsvClassSave.return_pattern("[:3]") is None
-        assert CsvClassSave.return_pattern("[3") is None
-        assert CsvClassSave.return_pattern("palabra") is None
-        assert CsvClassSave.return_pattern("[1-6-7-8-5-11-12-67-4-3-14]") is None
-        assert CsvClassSave.return_pattern("[3:11]") == (":", [3, 11])
-        assert CsvClassSave.return_pattern("[3:]") == (":", [3, ])
-        assert CsvClassSave.return_pattern("[11:7]") == (":", [7, 11])
-        assert CsvClassSave.return_pattern("[0:0]") == (":", [0, 0])
-        assert CsvClassSave.return_pattern("[1-4-6]") == ("-", [1, 4, 6])
-        assert CsvClassSave.return_pattern("[3-8-9-17-2]") == ("-", [2, 3, 8, 9, 17])
-        assert CsvClassSave.return_pattern("[0-6-8]") == ("-", [0, 6, 8])
-        assert CsvClassSave.return_pattern("[1-6-7-8-5-11-12-67-4-3]") == ("-", [1, 3, 4, 5, 6, 7, 8, 11, 12, 67])
-        assert CsvClassSave.return_pattern("[0]") == (None, [0])
-        assert CsvClassSave.return_pattern("[12]") == (None, [12])
+                BaseCsvManager.return_pattern(case)
+        assert BaseCsvManager.return_pattern("[:3]") is None
+        assert BaseCsvManager.return_pattern("[3") is None
+        assert BaseCsvManager.return_pattern("palabra") is None
+        assert BaseCsvManager.return_pattern("[1-6-7-8-5-11-12-67-4-3-14]") is None
+        assert BaseCsvManager.return_pattern("[3:11]") == (":", [3, 11])
+        assert BaseCsvManager.return_pattern("[3:]") == (":", [3, ])
+        assert BaseCsvManager.return_pattern("[11:7]") == (":", [7, 11])
+        assert BaseCsvManager.return_pattern("[0:0]") == (":", [0, 0])
+        assert BaseCsvManager.return_pattern("[1-4-6]") == ("-", [1, 4, 6])
+        assert BaseCsvManager.return_pattern("[3-8-9-17-2]") == ("-", [2, 3, 8, 9, 17])
+        assert BaseCsvManager.return_pattern("[0-6-8]") == ("-", [0, 6, 8])
+        assert BaseCsvManager.return_pattern("[1-6-7-8-5-11-12-67-4-3]") == ("-", [1, 3, 4, 5, 6, 7, 8, 11, 12, 67])
+        assert BaseCsvManager.return_pattern("[0]") == (None, [0])
+        assert BaseCsvManager.return_pattern("[12]") == (None, [12])
+
+    def test_set_data(self):
+        """ chequea que el comportamiento de test data sea el apropiado"""
+        new_instance = SingleCsvManager("dir_test", None)
+        assert new_instance.set_data() is None
+        new_instance.current_class = self.DateObjectTest
+        assert type(new_instance.set_data(*["Julia", "Arica", "40", "CIO", "15-11-1967"])).__name__ == "SingleCsvManager"
+        with pytest.raises(ValueError, match="clase actual debido al siguiente error"):
+            new_instance.set_data(*["Julia", "Arica", "40", "CIO"])
 
     def test_class_method_index(self):
-        """comprueba el funcionamiento del método de clase index para la
+        """ valida los argumentos del método de clase index para la
         importación de documentos csv"""
         # test for when you pass an empty .csv
+        # index does expects a file path instead of a file name
         with pytest.raises(ValueError, match="No es posible realizar la operación en un archivo sin contenidos"):
-            CsvClassSave.index(file_path=str(self.case_empty_file), delimiter="#")
-        for invalid_arg, message in (((r"{data_test.parent}\test.txt", "#", True), "de extension"),
+            SingleCsvManager.index(file_path=str(self.case_empty_file), delimiter="#")
+        for invalid_arg, message in (((rf"{Path(__file__).parent}\file_test.txt", "#", True), "de extension"),
                                      ((None, "d", False), "debe ser str"),
-                                     ((r"{data_test.parent}\test.csv", "<", True), "no existe"),
-                                     ((str(data_test), "%", "no"), "argumento id_present"),
-                                     ((str(data_test), "$$", False), "debe contener solo un")):
+                                     ((rf"{self.case_data_single.parent}\test.csv", "<", True), "una ruta valida"),
+                                     ((str(self.case_invalid_name), "#"), "debe solo contener los siguientes"),
+                                     ((str(self.case_data_single), "%", "no"), "argumento id_present"),
+                                     ((str(self.case_data_single), "$$", False), "debe contener solo un"),
+                                     ((str(self.case_data_single), "$", False, "CSV RESPALDO TIME"), "debe solo contener los siguientes"),
+                                     ((str(self.case_data_single), "$", False, "CSV_RESPALDO_TIME", set()), "si quiere añadir nuevas columnas debe pasar"),
+                                     ((str(self.case_data_single), "$", False, "CSV_RESPALDO_TIME", {}, {}), "para excluir columnas existentes debe pasar"),):
             with pytest.raises(ValueError, match=message):
-                CsvClassSave.index(*invalid_arg)
+                SingleCsvManager.index(*invalid_arg)
         # probando que la importación tenga el formato deseado
         expected_head = ["INDICE", "NAME", "CITY", "AGE", "JOB", "DATE"]
         expected_vals = [f"[{i}]" for i in range(1, 12)]
-        CsvClassSave.index(str(self.case_time_data), "#", False)
+        # this should create a backup\times.csv file
+        SingleCsvManager.index(str(self.case_time_data), "#", False)
         get_values = []
-        with open(fr"{Path(__file__).parent}\backup\backup_single.csv", "r", encoding="utf-8",
+        with open(fr"{Path(__file__).parent}\backup\times.csv", "r", encoding="utf-8",
                   newline="") as class_method:
             csv_read = csv.reader(class_method, delimiter="#")
             assert expected_head == next(csv_read)
@@ -300,20 +252,21 @@ class TestSingle:
                 get_values.append(row[0])
         assert get_values == expected_vals
 
-    def test_single_seek(self):
-        """comprueba que las búsquedas realizadas usando el modo single
-        retorne los resultados esperados (algunos patrones de búsqueda son comunes
-        a ambos modos)"""
+    def test_seek(self):
+        """ comprueba que las búsquedas realizadas retorne los resultados 
+        esperados"""
         # this as a class variable gave a weird behavior
         # managing class state is painful in test
         # to create backup directory
-        # cleaning data last test
-        # cleaning data in data_test.csv data on the data_test
-        data_clean_up(True, "#", self.case_data_single, True)
-        single_test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
+        # this creates a new file in backup
+        SingleCsvManager.index(str(self.case_data_single), "#", new_name="single_seek")
+        # here case data single is already in the backup and is
+        # going to get write to data_test on init due to the _hash function
+
+        single_test_instance = SingleCsvManager("single_seek", delimiter="#")
         for invalid in (8, ["test"], False, {1, 7, 9}, {"test": "no valido"}):
             with pytest.raises(ValueError, match="argumento string_pattern debe ser str"):
-                single_test_instance._CsvClassSave__query_parser(string_pattern=invalid)
+                single_test_instance._SingleCsvManager__query_parser(string_pattern=invalid)
         for bad_type in ((True, "test", False), (12, True, "test"), ("[10:]", 12, 15), ("[3]", True, 2.5)):
             with pytest.raises(ValueError, match="el argumento"):
                 next(single_test_instance.leer_datos_csv(*bad_type))
@@ -353,7 +306,7 @@ class TestSingle:
                   "size=10": [[], 0], "1b5": [[5, 20], 2], "": [list(range(1, 21)), 20], "size: 9": [[], 0]}
         for query, value in search.items():
             collect_entries = []
-            for item in single_test_instance.leer_datos_csv(query, back_up=True):
+            for item in single_test_instance.leer_datos_csv(query):
                 collect_entries.append(item[0])
             collect_entries.pop(0)
             assert len(collect_entries) == value[1], f"fallo en cantidad encontrada: {query}"
@@ -416,7 +369,7 @@ class TestSingle:
             }
         for exclude_query, values in special_query.items():
             collect_entries = []
-            new_query = single_test_instance.leer_datos_csv(exclude_query, back_up=True)
+            new_query = single_test_instance.leer_datos_csv(exclude_query)
             current_head = next(new_query)
             for special_query in new_query:
                 collect_entries.append(special_query[0])
@@ -430,7 +383,7 @@ class TestSingle:
         # header
         next(syntax_error)
         assert next(syntax_error) == "error de sintaxis"
-        # all of this needs refeactoring
+        # all of this needs refactoring
         functional_queries = {
             ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
              '> 6700 & "solving_time" != 4.047~COUNT:'): [[], 3, 5, head_2],
@@ -458,7 +411,7 @@ class TestSingle:
 
         for functional_queries, numbers in functional_queries.items():
             collect_functional = []
-            query_func = single_test_instance.leer_datos_csv(functional_queries, back_up=True)
+            query_func = single_test_instance.leer_datos_csv(functional_queries)
             func_head = next(query_func)
             for func_result in query_func:
                 collect_functional.append(func_result)
@@ -475,11 +428,10 @@ class TestSingle:
                                           numbers[0]], f"fallo en buscar entrada: {functional_queries}"
 
         # this is an implicit test if this method fails then the next assertions will also fails
-        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+        SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, new_name="seek_times")
         # test date data on search and operations, accepted format is ISO8601
         # repopulating with new data
-        new_date_test = self.DateObjectTest("Sara Stew", "Cape Coral", "age", "Google Intern", "WWWWWWWWW")
-        date_instance_test = CsvClassSave(str(data_test), new_date_test, True, "#")
+        date_instance_test = SingleCsvManager("seek_times", self.DateObjectTest, "#")
         searching_test = {'"DATE" <= 2024-08-20': [[1, 5, 8], 3],
                           '"date" < 06-11-2000': [[], 0],
                           '"DATE" = 2024-08-24': [[7, 11], 2],
@@ -490,21 +442,23 @@ class TestSingle:
                           '"DATE" <= 2024-08-20~MIN:date': [["1994-08-26"], 1],
                           '"DATE" <= 2024-08-20~DESC:date': [[1, 8, 5], 3],
                           '"DATE" <= 2024-08-20~ASC:date': [[5, 8, 1], 3],
-                          # now unique automatically returns the count at the end
+                          # now unique automatically returns the total amount
+                          # of rows (considering the repeated ones) at the end
                           # the last number in the list inside the list
-                          # is the total amount of entries for [[1, 5, 2], 3] 
-                          # in [1, 5, 2] 2 is the amount of entries (1 and 5) 
+                          # is the total amount of entries for [[1, 5, 3], 3] 
+                          # in [1, 5, 3] 3 is the amount of entries (1 and 5 
+                          # and the repeated value that is not yielded) 
                           # and 3 is the amount of returned values
-                          '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 2], 3],
+                          '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 3], 3],
                           # if the row that you are using a function on
                           # is not requested the function won't apply
                           '[date] "DATE" = 2024-08-24~UNIQUE:age': [[7, 11], 2],
-                          '[date] "DATE" = 2024-08-24~UNIQUE:DATE': [[7, 1], 2],
+                          '[date] "DATE" = 2024-08-24~UNIQUE:DATE': [[7, 2], 2],
                           '"DATE" < 2024-08-24~MAX:JOB': [["Web Developer"], 1],
                           '"DATE" < 2024-08-24~MIN:JOB': [["HR Coordinator"], 1],
                           '"DATE" < 2024-08-24~AVG:JOB': [[0], 1],
                           '"DATE" < 2024-08-24~SUM:JOB': [[0], 1],
-                          '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 4], 5],
+                          '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 5], 5],
                           '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
                           '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
                           # it returns floats like MAX AVG and SUM
@@ -513,7 +467,7 @@ class TestSingle:
                           }
         for query_date, value_date in searching_test.items():
             collect_entries = []
-            for dates in date_instance_test.leer_datos_csv(query_date, back_up=True):
+            for dates in date_instance_test.leer_datos_csv(query_date):
                 if dates[0] not in ("AVG", "MAX", "MIN", "SUM", "UNIQUE"):
                     collect_entries.append(dates[0])
                 else:
@@ -524,7 +478,7 @@ class TestSingle:
         # here we make the csv have columns which data that can
         # be a valid float str or dates changing the results
         # of some functions
-        date_instance_test.guardar_datos_csv()
+        date_instance_test.set_data("Sara Stew", "Cape Coral", "age", "Google Intern", "WWWWWWWWW").guardar_datos_csv()
         # making new AVG, SUM, MIX, MAX ASC and DESC test for str
         # to make sure that they are only applied if all the items
         # on a same column are str, since the program tries to 
@@ -554,10 +508,15 @@ class TestSingle:
                          '"INDICE" > 9~DESC:DATE': [[12, 11, 10], 3],
                          # to use ]= or [= on index you pass the number not [n or n]
                          '"INDICE" ]= 1~MIN:AGE': [[float(28)], 1],
+                         # test for the size operator <>
+                         '"name" <> 23': [[], 0],
+                         '"age" <> hola': [[], 0],
+                         '"city" <> 7': [[3, 4, 5], 3],
+                         '"city" <> 6': [[9, 11], 2],
                          }
         for multi_type_col_query, str_val in str_date_test.items():
             get_entries = []
-            for data in date_instance_test.leer_datos_csv(multi_type_col_query, back_up=True):
+            for data in date_instance_test.leer_datos_csv(multi_type_col_query):
                 if data[0] not in ("AVG", "MAX", "MIN", "SUM"):
                     get_entries.append(data[0])
                 else:
@@ -566,20 +525,15 @@ class TestSingle:
             assert len(get_entries) == str_val[1], f"fallo en cantidad encontrada: {multi_type_col_query}"
             assert get_entries == [f"[{val}]" for val in str_val[0]], f"fallo en buscar entrada: {multi_type_col_query}"
 
-    def test_single_update(self):
-        """comprueba que solo sean actualizadas las filas requeridas por la consulta 
-        y solo las columnas especificadas actualizar solo es posible en single=True"""
-        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
-        assert "Actualmente esta ocupando un objeto de tipo" in next(CsvClassSave(str(data_test), single=True,
-                                                                                  col_sep="#").actualizar_datos(update_query="UPDATE"))
-        update_date_test = self.DateObjectTest("Sara Stew", "Cape Coral", "30", "Google Intern", "2024-08-29")
-        with pytest.raises(AttributeError, match="no es posible actualizar"):
-            next(CsvClassSave(str(data_test), update_date_test, False, "#").actualizar_datos(update_query="UPDATE"))
-        test_update_instance = CsvClassSave(str(data_test), update_date_test, True, "#")
+    def test_update(self):
+        """ comprueba que solo sean actualizadas las filas requeridas por la consulta 
+        y solo las columnas especificadas"""
+        # setting data back on track
+        SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, new_name="UPDATE_TIMES")
+        test_update_instance = SingleCsvManager("UPDATE_TIMES", delimiter="#")
         with pytest.raises(ValueError, match="debe ingresar un str"):
             # you have to use next in generators for the code to start executing
             next(test_update_instance.actualizar_datos(update_query={1, 4, 6}))
-        # TODO TEST %NUM-FORMAT
         invalid_update_queries = {
             'UPDATE:~': 'error de sintaxis',
             'UPDATE "JOB"= ON "INDICE" = 2': 'error de sintaxis',
@@ -679,8 +633,8 @@ class TestSingle:
                                  'UPDATE:~"AGE"=%MUL:~-1 "DATE"=%ADD:~10500 ON [2-4-6-8-10-11]': [[11], [7], {3: [str(float(x)) for x in [-16, -8, -14, -12, -10]]}],
                                  }
         # index can be use as a away to reset the current data
-        CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
-        update_test_two = CsvClassSave(str(data_test), update_date_test, True, "#")
+        SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, new_name="UPDATE_TIMES_2")
+        update_test_two = SingleCsvManager("UPDATE_TIMES_2", delimiter="#")
         for parcial_query, parcial_result in parcial_valid_queries.items():
             total_invalids = parcial_result[1][0] if parcial_result[1] else 0
             for query_result in update_test_two.actualizar_datos(parcial_query):
@@ -707,30 +661,34 @@ class TestSingle:
         # UPDATE ITERATOR COMPLETELY FIRST
         for _ in update_test_two.actualizar_datos('UPDATE:~"JOB"=  ON "INDICE" = 2 | "INDICE" = 11'):
             pass
-        rows = update_test_two.leer_datos_csv('"JOB" =  ', back_up=True)
+        rows = update_test_two.leer_datos_csv('"JOB" =  ')
         next(rows)
         assert next(rows)[0] == "[2]", "fallo en actualizar y buscar 2"
         assert next(rows)[0] == "[11]", "fallo en actualizar y buscar 11"  
 
 
     def test_index_write(self):
-        """comprueba que se cree una clase nueva cuando se pasa un csv que no depende de
-        objetos de python y que la clase creada permita agregar y actualizar valores"""
-        write_object = CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
-        write_instance = write_object(**{"name": "Finn", "city": "Port Vila", 
-                                         "age": "25", "job": "Developer", "date": "1999-08-17"})
-        test_instance = CsvClassSave(path_file=str(data_test), class_object=write_instance, single=True, col_sep="#")
+        """ comprueba que se cree una clase nueva cuando se pasa un csv que no depende de
+        objetos de python y que la clase creada permita agregar valores"""
+        write_object = SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, new_name="INDEX_WRITER")
+        test_instance = SingleCsvManager(file_name="INDEX_WRITER", current_class=write_object, delimiter="#")
+        test_instance.set_data(**{"name": "Finn", "city": "Port Vila", 
+                                   "age": "25", "job": "Developer", "date": "1999-08-17"})
         new_entry = test_instance.guardar_datos_csv()
         assert new_entry == "\nINDICE#NAME#CITY#AGE#JOB#DATE\n[12]#Finn#Port Vila#25#Developer#1999-08-17", f"error al crear entrada {new_entry}"
         updated_entry = test_instance.actualizar_datos(update_query='UPDATE:~"NAME"=Jake "AGE"=35 ON "INDICE" = 12')
         expected = next(updated_entry)["result"] 
         assert expected == "[12]#Jake#Port Vila#35#Developer#1999-08-17".split("#"), f"error al actualizar entrada {'#'.join(expected)}"
 
+
+    def test_index_exclude_include(self):
+        """ comprueba el funcionamiento de los argumentos id_present, extra_columns y new_name
+        del método de clase index"""
         invalid_combinations = [(set(), []), ((1,), "HOLA"), 
                                 ({}, 12.6), ([], []), ({}, {})]
         for extra, excluded in invalid_combinations:
             with pytest.raises(ValueError, match="pero su argumento fue de tipo"):
-                CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=extra, exclude=excluded)
+                SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=extra, exclude=excluded)
 
         # the program first exclude the cols and then add the new ones
         # so this ({"UNIVERSITY": "MIT", "JOB": " "}, ["JOB", "NAME"]) does not
@@ -739,38 +697,40 @@ class TestSingle:
                                  ({"SALARY": "", "salary": "NULL"}, ["name"])]
         for new_col, removed_col in invalid_new_col_names:
             with pytest.raises(ValueError, match="los encabezados no pueden tener nombres repetidos para las columnas"):
-                CsvClassSave.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=new_col, exclude=removed_col)
+                SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=new_col, exclude=removed_col)
 
-
-        all_exclude_col_object = CsvClassSave.index(file_path=str(self.case_time_data), 
-                                              delimiter="#", id_present=False, exclude=["INDICE", "NAME", "Job", "DATE", "city", "aGe"])
-        test_instance_2 = CsvClassSave(path_file=str(data_test), class_object=all_exclude_col_object(), single=True, col_sep="#")
+        # resetting the case time data
+        all_exclude_col_object = SingleCsvManager.index(file_path=str(self.case_time_data), 
+                                              delimiter="#", id_present=False, exclude=["INDICE", "NAME", "Job", "DATE", "city", "aGe"], new_name="INDEX_EXCLUDE")
+        test_instance_2 = SingleCsvManager(file_name="INDEX_EXCLUDE", current_class=all_exclude_col_object, delimiter="#")
 
         result_instance_2 = test_instance_2.leer_datos_csv()
         assert next(result_instance_2) == ["INDICE"], "fallo en encabezado"
         assert len(next(result_instance_2)) == 1, "fallo en cantidad esperada"
+        # testing what happens when writing class with empty __dict__
+        # it should write the new index with no content
+        test_instance_2.set_data().guardar_datos_csv()
+        for search_result in test_instance_2.leer_datos_csv('"INDICE" > 0'):
+            pass
+        assert search_result == ["[12]",]
 
-        added_col_object = CsvClassSave.index(file_path=str(self.case_time_data), 
+
+        added_col_object = SingleCsvManager.index(file_path=str(self.case_time_data), new_name="INDEX_EXTRA",
                                               delimiter="#", id_present=False, exclude=["city",], extra_columns={"SALARY": "", 
                                                                                                                  "TAX": "25",
                                                                                                                  "TOTAL": "0", 
                                                                                                                  "CITY": " "})
-        new_col_object = added_col_object(**{"name": "Lian", 
-                                             "age": 31,
-                                             "job": "DevOps",
-                                             "date": "2016-07-24",
-                                             "salary": 2500,
-                                             "tax": 15,
-                                             "total": 2500 - 2500 * 0.15,
-                                             "city": "Ohio",})
-        test_instance_3 = CsvClassSave(path_file=str(data_test), class_object=new_col_object, single=True, col_sep="#")
+        test_instance_3 = SingleCsvManager(file_name="INDEX_EXTRA", current_class=added_col_object, delimiter="#")
         for value in test_instance_3.leer_datos_csv(search='[SALARY#CITY] "INDICE" > 0~UNIQUE:SALARY'):
             # for this case with unique only one result is expected
             if value[0] not in ("UNIQUE", "INDICE"):
                 assert value[0] in [f"[{i}]" for i in range(1, 2)], f"fallo en cantidad encontrada {value}"
                 assert all([val == "VOID" for val in value[1:]])
+        test_instance_3.set_data(**{"name": "Lian", "age": 31, "job": "DevOps",
+                                     "date": "2016-07-24", "salary": 2500, "tax": 15,
+                                     "total": 2500 - 2500 * 0.15, "city": "Ohio",})       
         assert test_instance_3.guardar_datos_csv() == ("\nINDICE#NAME#AGE#JOB#DATE#SALARY#TAX#TOTAL#CITY\n[12]"
-                                                     "#Lian#31#DevOps#2016-07-24#2500#15#2125.0#Ohio")
+                                                       "#Lian#31#DevOps#2016-07-24#2500#15#2125.0#Ohio")
         queries = [
             # cant pass float to random-int
             'UPDATE:~"SALARY"=%RANDOM-INT:~4560#900 "TOTAL"=%COPY:~SALARY "TOTAL"=%MUL:~USE:~TAX "TOTAL"=%DIV:~100 ON "INDICE" < 11',
@@ -790,10 +750,10 @@ class TestSingle:
             assert int(value[7]) >= 675
 
         # TEST FOR NEW INDEX FEATURES WITH A CSV ALREADY INDEXED
-        write_object_with_index = CsvClassSave.index(file_path=str(self.case_data_single), delimiter="#", 
-                                                     extra_columns={"time_difficulty_ratio": ""}, exclude=["start", "start", "end",])
-        index_instance = write_object_with_index(**{"start_vals": 90, "solving_time": 603.60, "difficulty": 736425, "size": 16, "time_difficulty_ratio": 0.000820})
-        test_instance_indexed = CsvClassSave(path_file=str(data_test), class_object=index_instance, single=True, col_sep="#")
+        write_object_with_index = SingleCsvManager.index(file_path=str(self.case_data_single), delimiter="#", new_name="INDEXED-CSV", 
+                                                         extra_columns={"time_difficulty_ratio": ""}, exclude=["start", "start", "end",])
+        test_instance_indexed = SingleCsvManager(file_name="INDEXED-CSV", current_class=write_object_with_index, delimiter="#")
+        test_instance_indexed.set_data(**{"start_vals": 90, "solving_time": 603.60, "difficulty": 736425, "size": 16, "time_difficulty_ratio": 0.000820})
         test_result = [0.16, 1.216, 0.286, 0.308, 0.001, 0.0, 0.011, 0.047, 0.03, 0.015, 0.035, 0.608, 0.176, 
                        0.267, 0.099, 0.261, 0.087, 0.067, 0.029, 0.014]
         update_query = ('UPDATE:~"time_difficulty_ratio"=%COPY:~start_vals "time_difficulty_ratio"=%DIV:~USE:~difficulty '
@@ -801,15 +761,52 @@ class TestSingle:
         for next_test, next_result in zip(test_instance_indexed.actualizar_datos(update_query=update_query), test_result, strict=True):
             assert next_test["result"][-1] == f"{next_result:.3f}"
 
-    def test_single_delete(self):
-        """comprueba que se borren las entradas especificadas, el comportamiento
-        es igual independiente del modo (single (single=True) o multiple (single=False))
-        para las consultas que no usen DELETE ON (solo modo single=True)"""
+        # test for col with indice column other than the first
+        # it should raise error for both cases
+        with pytest.raises(ValueError, match="los encabezados no pueden tener"):
+            SingleCsvManager.index(file_path=str(self.case_misplaced_index_col), delimiter=",",
+                                   id_present=False, extra_columns={"ACTOR": ""}, exclude=["release year"])
+        # TEST ID PRESENT ON FILE WITHOUT ID
+        # THIS SHOULD OVERRIDE THE FIRST COL WITH INDICE
+        # FOR THIS FILE THE COL NAME IS NO LONGER THERE
+        new_object_writer = SingleCsvManager.index(str(self.case_time_data), delimiter="#", new_name="index-rewrite")
+        new_instance_case = SingleCsvManager("index-rewrite", new_object_writer, delimiter="#")
+        search_iter = new_instance_case.leer_datos_csv('"INDICE" = 1')
+        assert next(search_iter) == ["INDICE", "CITY", "AGE", "JOB", "DATE"]
+        assert next(search_iter) == ["[1]", "New York", "28", "Software Engineer", "2024-08-20"]
+        new_instance_case.set_data(**{"city": "", "age": "", "job": "", "date": ""}).guardar_datos_csv()
+        # setting a len selector to check for empty entries
+        # <> is the size operator
+        # TEST FOR NUMBER OF COL SIZE LIMIT
+        for data in new_instance_case.leer_datos_csv('"CITY" <> 0'):
+            pass
+        assert data == ["[12]", "", "", "", ""]
+        # TEST WITH NO INDEX BUT EXCLUDE FIRST VALUE
+        for updated in new_instance_case.actualizar_datos('UPDATE:~"CITY"=Ohio "AGE"=21 "JOB"="Manager Assistant" "DATE"=2013-07-22 ON "AGE" <> 0 & "JOB" <> 0'):
+            pass
+        # you can use "" on values to update and this is how that looks
+        assert updated["result"] == ['[12]', 'Ohio', '21', '"Manager Assistant"', '2013-07-22']
+
+        # TEST FOR INDEXED CSV WITH NAME != INDICE USING ID_PRESENT FALSE
+        # expected result: you end up we two columns that represent the entry index
+        writer = SingleCsvManager.index(str(self.case_different_index_name), ",", False, new_name="DIFFERENT-INDEX")
+        new_instance_case = SingleCsvManager("DIFFERENT-INDEX", writer, ",")
+        for entry in new_instance_case.leer_datos_csv('"ENTRY_NUMBER" = 5'):
+            pass
+        assert entry == ["[5]", "5", "2007", "Iron Vanguard", "156600376"]
+        new_instance_case.set_data(*[78, 2026, "The Amazing World Of Gumball: The Movie", 250000000])
+        write_result = new_instance_case.guardar_datos_csv()
+        assert write_result == ("\nINDICE,ENTRY_NUMBER,RELEASE_YEAR,MOVIE_TITLE,GROSS_INCOME\n"
+                                "[22],78,2026,The Amazing World Of Gumball: The Movie,250000000")
+
+
+    def test_delete(self):
+        """ comprueba que se borren las entradas especificadas en las queries"""
         # clean up the data always before an assert
         # putting data back on track
         # in case a previous test fails
-        data_clean_up(True, "#", self.case_data_single)
-        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
+        SingleCsvManager.index(str(self.case_data_single), delimiter="#", new_name="DELETE_TEST")
+        test_instance = SingleCsvManager("DELETE_TEST", delimiter="#")
         invalid_delete = ["hola", "size=9", "[:12]", "[1-12-14-15-6-7-9-10-11-2-14]", "[10-]",
                           "<class 'vehiculo.Bicicleta'>",
                           'DELETE ON[solving_time#difficulty#size] "difficulty" > 10 & "difficulty" < 100',]
@@ -817,7 +814,8 @@ class TestSingle:
             with pytest.raises(ValueError, match="o escribiendo una consulta usando la palabra clave DELETE"):
                 next(test_instance.borrar_datos(query))
 
-        for bad_arg in ((12, True), ("[2:5]", 13), (True, "[2:5]")):
+        # it used to take two args thats why it is still a tuple
+        for bad_arg in ((12,), (True,), ([2, 5],)):
             with pytest.raises(ValueError, match="el argumento"):
                 next(test_instance.borrar_datos(*bad_arg))
 
@@ -841,9 +839,9 @@ class TestSingle:
         assert next(test_instance.borrar_datos("borrar todo")) == "todo"
         assert next(test_instance.borrar_datos("borrar todo")) == "nada"
         assert next(test_instance.borrar_datos("[1]")) == "nada"
-        data_clean_up(True, "#", self.case_data_single)
         # overriding old instance to sync original to backup
-        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
+        SingleCsvManager.index(str(self.case_data_single), delimiter="#", new_name="DELETE_TEST_2")
+        test_instance = SingleCsvManager("DELETE_TEST_2", delimiter="#")
         valid_query_delete = {
             ('DELETE ON [START#END#START_VALS] "size" > 4 & "difficulty" >= 5000 '
              '| "difficulty" > 6700 & "solving_time" != 4.047~LIMIT:1'): [[5, 6, 20], 17], 
@@ -864,37 +862,56 @@ class TestSingle:
         
 
     def test_pass_object_no_dict(self):
-        """chequea que se de una advertencia si se intenta guardar un objeto que no
+        """ chequea que se de una advertencia si se intenta guardar un objeto que no
         soporte __dict__ ya que es lo que se usa para guardar los atributos"""
         # data restoration before the next test is run
-        data_clean_up(True, "#", self.case_data_single)
-        assert "Actualmente esta ocupando un objeto de tipo" in CsvClassSave(str(self.case_data_single), single=True,
-                                                                             col_sep="#").guardar_datos_csv()
+        SingleCsvManager.index(str(self.case_data_single), "#")
+        assert "Actualmente esta ocupando un objeto de tipo" in SingleCsvManager("no_dict", delimiter="#").guardar_datos_csv()
 
     def test_max_row_zero(self):
-        """chequea que si se excede la capacidad designada para la cantidad de filas
+        """ chequea que si se excede la capacidad designada para la cantidad de filas
         se retorne una advertencia al usuario al tratar de crear una nueva entrada"""
 
         # test class so the object has __dict__
         class RowsTest:
             filler = 0
 
-        test_instance = CsvClassSave(str(data_test), class_object=RowsTest(), single=True, col_sep="#")
-        test_instance.max_row_limit = 0
+        test_instance = SingleCsvManager("no_dict", current_class=RowsTest, delimiter="#")
+        test_instance.set_data()
+        BaseCsvManager.max_row_limit = 0
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
-        test_instance.max_row_limit = 13
+        BaseCsvManager.max_row_limit = 13
         # plus one to not count header
         test_instance.current_rows = 14
         assert "Advertencia: Su entrada no fue creada" in test_instance.guardar_datos_csv()
+        # the change has to be reverted since this alters the value for all the classes
+        # that inherit from BaseCsvManager
+        BaseCsvManager.max_row_limit = 50_000
 
-    def test_not_matched_dict_object_single(self):
-        """en el modo single no se pueden escribir nuevas entrada que no tengan los mismo nombres
-        de atributos y cantidad de atributos que las entradas ya presentes aquí se chequea que
+    def test_max_col_limit(self):
+        """comprueba que si se excede el número máximo de
+        columnas por archivo se retorne un mensaje de advertencia"""
+        BaseCsvManager.max_col_limit = 2
+        test_instance = SingleCsvManager("no_dict", self.SingleObjectTest, delimiter="#", exclude=("other",))
+        test_instance.set_data(**self.arguments)
+        assert "__dict__ que supera el máximo de columnas" in test_instance.guardar_datos_csv()
+        BaseCsvManager.max_col_limit = 20
+
+    def test_no_writer_instance(self):
+        """ verifica que si no se han pasado datos a writer_instance no se pueda ocupar el método para 
+        para guardar datos"""
+        new_instance = SingleCsvManager("no_dict", self.SingleObjectTest, delimiter="#")
+        assert "usando el método set_data" in new_instance.guardar_datos_csv()
+
+    def test_not_matched_dict_object(self):
+        """ comprueba que no se pueden escribir nuevas entrada que no tengan los mismo nombres
+        de atributos y cantidad de atributos que las entradas ya presentes aquí, se chequea que
         si al pasar un objeto que no calza con los ya presentes se lance un error"""
-        new_local_object = self.SingleObjectTest(**self.arguments)
-        new_instance = CsvClassSave(str(data_test), new_local_object, True, col_sep="#")
+        SingleCsvManager.index(str(self.case_data_single), "#", new_name="no_dict")
+        new_instance = SingleCsvManager("no_dict", self.SingleObjectTest, delimiter="#")
+        new_instance.set_data(**self.arguments)
         # length inequality
-        with pytest.raises(ValueError, match="en modo single = True"):
+        with pytest.raises(ValueError, match="con el mismo número"):
             # if you use this program you shouldn't change from
             # single True to False if this module is already being used for
             # on a mode it will only create bugs
@@ -902,41 +919,41 @@ class TestSingle:
 
         # name inequality
         new_instance.exclude = ("size",)
-        with pytest.raises(ValueError, match="en modo single = True"):
+        with pytest.raises(ValueError, match="atributos y nombres"):
             # if you use this program you shouldn't change from
             # single True to False if this module is already being used for
             # on a mode it will only create bugs
             new_instance.guardar_datos_csv()
 
-    def test_exclude_single(self):
-        """comprueba que los atributos del objeto excluidos usando el
+    def test_exclude(self):
+        """ comprueba que los atributos del objeto excluidos usando el
         atributo exclude sean excluidos al escribir una nueva entrada ('!' al
         inicio de exclude es para negar y que solo se incluya lo después del '!')"""
-        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#",
-                                      exclude=("other",))
+        local_instance = SingleCsvManager("no_dict", self.SingleObjectTest, "#",
+                                          exclude=("other",))
+        local_instance.set_data(**self.arguments)
         assert local_instance.guardar_datos_csv() == ("\nINDICE#START#END#START_VALS#SOLVING_TIME#DIFFICULTY#"
                                                       "SIZE\n[21]#-432-3---1-442-3#1432234131244213#9#0.0#8#4")
-        local_instance.object.end = ":" + local_instance.object.end
+        local_instance.set_data(**{"start": "-432-3---1-442-3", "end": ":1432234131244213:",
+                                    "start_vals": 9, "solving_time": 0.0, "difficulty": 8,
+                                    "size": 4, "other": "nada"})
         # comprobando que en modo single = True los : no son remplazados
         assert local_instance.guardar_datos_csv() == ("\nINDICE#START#END#START_VALS#SOLVING_TIME"
                                                       "#DIFFICULTY#SIZE\n[22]#-432-3---1-442-3#:"
-                                                      "1432234131244213#9#0.0#8#4")
+                                                      "1432234131244213:#9#0.0#8#4")
         local_instance.exclude = ("!", "other")
         # esto lanza error (como debería) por que es modo single y la cantidad de atributos
         # no calza al negar exclude con los de las entradas ya escritas
-        with pytest.raises(ValueError, match="en modo single = True"):
+        with pytest.raises(ValueError, match="atributos y nombres"):
             local_instance.guardar_datos_csv()
 
-    def test_enforce_single(self):
-        """comprueba que se pasen los argumentos apropiados al método guardar_datos_csv
+    def test_enforce(self):
+        """ comprueba que se pasen los argumentos apropiados al método guardar_datos_csv
         y que al pasar los correctos se aplique la función de enforce_unique que es
         comprobar que solo se puedan escribir nuevas entradas con valores únicos para los
         campos pasados al argumento enforce_unique"""
-        local_instance = CsvClassSave(str(data_test), self.SingleObjectTest(**self.arguments), True, "#",
-                                      exclude=("other",))
-        # cleaning data always before the next assert
-        for _ in local_instance.borrar_datos("[21:]"):
-            pass
+        local_instance = SingleCsvManager("no_dict", self.SingleObjectTest, "#", exclude=("other",))
+        local_instance.set_data(**self.arguments)
         for cases, message in {12: "debe ser una tuple", (): "al menos un str",
                                (True,): "solo debe contener str", ("size", 12): "solo debe contener str"}.items():
             with pytest.raises(ValueError, match=message):
@@ -944,230 +961,103 @@ class TestSingle:
         assert local_instance.guardar_datos_csv(("size",)) == "presente"
         assert local_instance.guardar_datos_csv(("size", "solving_time")) == "presente"
 
-    def test_export_single(self):
-        """comprueba que al querer usar export en modo single = True se lance un
-        error ya que no se encuentra disponible el método con esa opción"""
-        test_instance = CsvClassSave(str(data_test), single=True, col_sep="#")
-        with pytest.raises(AttributeError, match="no disponible en modo single = True"):
-            test_instance.export("", "")
+    def test_list_records(self):
+        files_instance = [file_name for file_name in BaseCsvManager.return_current_file_names()]
+        actual_files = [file.stem for file in BaseCsvManager.backup.iterdir()]
+        assert  len(files_instance) == len(actual_files), "fallo en cantidad de archivos"
+        assert files_instance == actual_files, "fallo en nombres de archivos"
 
-
-class TestMultiple:
-    """Engloba los test para el modo multiple o single = False,
-    solo implementando pruebas en aquellos lugares donde ambos modos
-    difieren en la ejecución de su código"""
-    case_data_multiple = Path(fr"{Path(__file__).parent}\data\data_multiple_class.csv")
-
-    @dataclasses.dataclass
-    class MultiObjectTest:
-        nombre: str
-        edad: int
-        nacimiento: int
-        estado: str
-        comentario: str
-
-    arguments = {"nombre": "Mark Test",
-                 "edad": 40,
-                 "nacimiento": 1984,
-                 "estado": "soltero",
-                 "comentario": "estoy tranquilo"}
-
-    def test_seek_multiple(self):
-        """comprobando que la búsqueda de entradas funcione como es debido
-        en modo multi o single=False (en general que de resultados distintos en
-        ciertas búsquedas con respecto a los que da en modo single)"""
-        data_clean_up(False, "|", self.case_data_multiple)
-        multi_test_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
-        # en modo multiple no hay soporte para operadores como el or y and
-        # del modo simple para buscar, aparte de eso la funcionalidad
-        # para buscar es la misma entre los dos modos (en modo multiple
-        # para buscar por atributo (columna en modo single) usas
-        # nombre_columna: valor)
-        search = {'"marca" = Ford & velocidad = 180': [[], 0], "marca: Ford & velocidad: 180": [[], 0],
-                  '"marca" = ford | velocidad >= 180': [[], 0], "marca: Ford": [[1, 11], 2],
-                  "marca: ford": [[1, 11], 2],
-                  "vehiculo.automovil": [[5, 10, 11], 3]}
-        for query, value in search.items():
-            collect_entries = []
-            for item in multi_test_instance.leer_datos_csv(query, back_up=True):
-                collect_entries.append(item[0])
-            collect_entries.pop(0)
-            assert len(collect_entries) == value[1], f"fallo en cantidad encontrada: {query}"
-            assert collect_entries == [f"[{val}]" for val in value[0]], f"fallo en buscar entrada: {query}"
-        with pytest.raises(AttributeError, match="filtrado por selector lógico no disponible"):
-            # access private method
-            multi_test_instance._CsvClassSave__query_parser(string_pattern='"marca" = Ford & velocidad = 180')
-
-    def test_delete_multi(self):
-        """comprueba que en modo multiple se pueda borrar entradas usando el nombre de una clase"""
-        local_instance = CsvClassSave(str(data_test), single=False, col_sep="|")
-        assert local_instance.current_classes == ["<class 'vehiculo.Particular'>", "<class 'vehiculo.Carga'>",
-                                                  "<class 'vehiculo.Bicicleta'>", "<class 'vehiculo.Motocicleta'>",
-                                                  "<class 'vehiculo.Automovil'>"]
-        with pytest.raises(ValueError, match="introduciendo el nombre completo"):
-                next(local_instance.borrar_datos('DELETE ON "INDICE" > 5'))
-        deleted_entries = []
-        for item in local_instance.borrar_datos(delete_index="<class 'vehiculo.Particular'>"):
-            deleted_entries.append(str(item).split("|")[0])
-        deleted_entries.pop(0)
-        assert deleted_entries == ["[1]", "[9]"]
-        assert local_instance.current_classes == ["<class 'vehiculo.Carga'>", "<class 'vehiculo.Bicicleta'>",
-                                                  "<class 'vehiculo.Motocicleta'>", "<class 'vehiculo.Automovil'>"]
-
-    def test_not_matched_dict_object_multiple(self):
-        """comprobando que en modo multiple se puedan guardar objetos con distinto
-        número y nombre de atributos (esta es la función que implementa el modo multiple a
-        diferencia del modo single donde solo un tipo de objetos de igual numero y nombre
-        de atributos se debe guardar)
-        """
-        # restoring last test data changes
-        data_clean_up(False, "|", self.case_data_multiple)
-        local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
-        has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
-                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                     "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero, comentario: estoy tranquilo")
-        assert local_instance.guardar_datos_csv() == has_to_be
-
-    def test_exclude_multiple(self):
-        """comprueba que los atributos del objeto excluidos usando el
-        atributo exclude sean excluidos al escribir una nueva entrada en modo
-        multiple ya que hay diferencias en el código usado para hacerlo dependiendo del modo"""
-        local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|",
-                                      exclude=("comentario",))
-        for _ in local_instance.borrar_datos("[12]"):
+    def test_rename_folder(self):
+        new_instance = SingleCsvManager("times", self.DateObjectTest, "#")
+        new_instance.set_data(*["Daniel Joseph", "Mississippi", 65, "Software Engineer", "2004-11-10"]).guardar_datos_csv()
+        for entry in new_instance.leer_datos_csv('"indice" > 0~COUNT:'):
             pass
-        has_to_be_1 = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
-                       "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                       "nombre: Mark Test, edad: 40, nacimiento: 1984, estado: soltero")
-        assert local_instance.guardar_datos_csv() == has_to_be_1
-        local_instance.exclude = ("!", "comentario")
-        has_to_be_2 = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
-                       "<class 'test_csv.TestMultiple.MultiObjectTest'>|comentario: estoy tranquilo")
-        assert local_instance.guardar_datos_csv() == has_to_be_2
-        local_instance.exclude = ("nombre", "nacimiento", "estado")
-        has_to_be_3 = ("\nINDICE|CLASE|ATRIBUTOS\n[14]|"
-                       "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                       "edad: 40, comentario: estoy tranquilo")
-        assert local_instance.guardar_datos_csv() == has_to_be_3
+        assert entry[-1] == 12
+        with pytest.raises(ValueError, match="debe solo contener los siguientes caracteres"):
+            new_instance.rename_file("rename folder")
+        new_instance.rename_file("rename_folder")
+        current_names_space = [name for name in BaseCsvManager.return_current_file_names()]
+        assert "rename_folder" in current_names_space
+        assert "times" not in current_names_space
+        assert new_instance.instance_file_path.stem == "rename_folder"
+        for _ in new_instance.actualizar_datos('UPDATE:~"AGE"=%SUB:~15 "AGE"=%FLOOR ON "INDICE" = 12'):
+            pass
+        for entry in new_instance.leer_datos_csv('[AGE] "indice" = 12'):
+            pass
+        assert entry[-1] == "50"
 
-    def test_enforce_multiple(self):
-        """comprueba el funcionamiento del argumento enforce_unique
-        del método guardar_datos_csv en modo multiple"""
-        local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**self.arguments), False, "|")
-        for _ in local_instance.borrar_datos("[12:]"):
+    def test_delete_records(self):
+        """ comprueba que este método estático elimine los archivos correspondientes"""
+        # invalid name should not
+        # be able po pass to path here 
+        # since it checks if the name is in the directory first
+        current_files = [file_name for file_name in BaseCsvManager.return_current_file_names()]
+        BaseCsvManager.delete_record("not_present")
+        assert len(current_files) == sum(1 for _ in BaseCsvManager.return_current_file_names())
+        # if is not a string is not going to be considered and it should still 
+        # delete if any string name matches
+        to_delete = [True, "times", "data_single", "DIFFERENT-INDEX", "INDEX_EXTRA", "index-rewrite", 678_900]
+        BaseCsvManager.delete_record(*to_delete)
+        assert set([file_name for file_name in BaseCsvManager.return_current_file_names()]) & set(to_delete) == set()
+        BaseCsvManager.delete_record("INDEX_WRITER", "INDEX_EXCLUDE", "borrar todo")
+        assert sum(1 for _ in BaseCsvManager.return_current_file_names()) == 0
+        
+    def test_multiple_operations(self):
+        """ chequea el comportamiento de distintas funciones vistas previamente en una sola ejecución como crear
+        un nuevo directorio de respaldos y la escritura entre distintas instancias de SingleCsvManager"""
+        # first create a new backup in other folder
+        new_dir = Path(fr"{Path(__file__).parent}\last_test_backup")
+        if new_dir.is_dir():
+            shutil.rmtree(str(new_dir))
+        new_dir.mkdir(exist_ok=True)
+        BaseCsvManager.backup = new_dir
+        # pass only a file name to the init function
+        new_instance = SingleCsvManager(file_name="new_file", current_class=self.MovieObjectTest, 
+                                        delimiter=",", exclude=("entry",))
+        # latter in replace all the headers with the ones in movies.csv
+        new_instance.set_data(**{"entry": 1, "release": 2026, "title": "The Amazing World Of Gumball: The Movie",
+                                 "income": 250_000_000})
+        result = new_instance.guardar_datos_csv()
+        assert result == ("\nINDICE,RELEASE,TITLE,INCOME\n"
+                          "[1],2026,The Amazing World Of Gumball: The Movie,250000000")
+        assert new_instance.guardar_datos_csv(enforce_unique=("title",)) == "presente"
+        new_instance.set_data(*['7', '2019', 'Neon Mirage', '254848284']).guardar_datos_csv()
+        writer_object = SingleCsvManager.index(file_path=f"{self.case_different_index_name}", delimiter=",", id_present=False)
+        another_instance = SingleCsvManager(file_name="movies", current_class=writer_object, delimiter=",")
+        for count, entry in enumerate(another_instance.leer_datos_csv('"INDICE" > 0 & "indice" <= 9')):
+            # to no count the header
+            if count:
+            # so we do not count the indice
+                new_instance.set_data(*entry[1:]).guardar_datos_csv(enforce_unique=("title",))
+        # assert what values where entered
+        search_results = [value for value in new_instance.leer_datos_csv('"title" = Phantom\'s Echo')]
+        assert len(search_results[1:]) == 1
+        # this counts also the header
+        current_rows = another_instance.current_rows
+        for _ in another_instance.borrar_datos('DELETE ON "INDICE" > 0 & "INDICE" <= 9'):
             pass
-        local_instance.guardar_datos_csv()
-        assert local_instance.guardar_datos_csv(enforce_unique=("comentario",)) == "presente"
-        local_argument = {"nombre": "Mark mayz",
-                          "edad": 40,
-                          "nacimiento": 1984,
-                          "estado": "casado",
-                          "comentario": "nada"}
-        new_local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**local_argument), False, "|")
-        assert new_local_instance.guardar_datos_csv(enforce_unique=("nacimiento", "edad")) == "presente"
-        has_to_be = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
-                     "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                     "nombre: Mark mayz, edad: 40, nacimiento: 1984, estado: casado, comentario: nada")
-        # all enforce unique fields have to be present for the filter to work
-        assert new_local_instance.guardar_datos_csv(enforce_unique=("estado", "nombre", "nacimiento")) == has_to_be
-
-    def test_remove_invalid_char(self):
-        """comprueba la correcta eliminación y remplazo del carácter : (modo single = False solamente)
-        el cual es ocupado para separar valores dentro de la columna atributos
-        con los cuales luego se puede exportar datos usando el método export"""
-        local_argument = {"nombre": "Mark : mayz",
-                          "edad": 40,
-                          "nacimiento": 1984,
-                          "estado": "ca:sado:",
-                          "comentario": "::nada de lo que esta aquí me gustaría decirlo, asi que adios: me despido"}
-        new_local_instance = CsvClassSave(str(data_test), self.MultiObjectTest(**local_argument), False, col_sep="|")
-        for _ in new_local_instance.borrar_datos("[12:]"):
+        assert another_instance.current_rows == current_rows - 9
+        # finally delete the new directory
+        # >> is the len grater than operator and << is the len less than operator
+        # <> is the len equals to operator there is not inclusive version of << or >>
+        updated_values = [value["result"][0] for value in another_instance.actualizar_datos('UPDATE:~"entry_number"=%RANDOM-INT:~502#701 "GROSS_income"=%DIV:~2 "GROSS_income"=%FLOOR ON "MOVIE_TITLE" >> 13 & "movie_title" << 19')]
+        assert updated_values == [f"[{val}]" for val in (4, 6, 7, 8, 10, 11)]
+        for count, entry in enumerate(another_instance.leer_datos_csv('"MOVIE_TITLE" >> 13 & "movie_title" << 19')):
+            if count:
+                new_instance.set_data(*entry[1:]).guardar_datos_csv()
+        for search_count in new_instance.leer_datos_csv('"INDICE" > 0~COUNT:'):
             pass
-        expected_str = ("\nINDICE|CLASE|ATRIBUTOS\n[12]|"
-                        "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                        "nombre: Mark ; mayz, edad: 40, nacimiento: 1984, estado: ca;sado;, "
-                        "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
-        expected_str_2 = ("\nINDICE|CLASE|ATRIBUTOS\n[13]|"
-                          "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                          "nombre: Mark ; mayz, nacimiento: 1984, estado: ca;sado;, "
-                          "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
-        expected_str_3 = ("\nINDICE|CLASE|ATRIBUTOS\n[14]|"
-                          "<class 'test_csv.TestMultiple.MultiObjectTest'>|"
-                          "nombre: Mark ; mayz, nacimiento: 1960, estado: ca;sado;, "
-                          "comentario: ;;nada de lo que esta aquí me gustaría decirlo, asi que adios; me despido")
-        assert new_local_instance.guardar_datos_csv() == expected_str
-        new_local_instance.exclude = ("edad",)
-        assert new_local_instance.guardar_datos_csv() == expected_str_2
-        # enforce unique comes before exclude
-        local_argument["nacimiento"] = 1960
-        new_local_instance.object = self.MultiObjectTest(**local_argument)
-        assert new_local_instance.guardar_datos_csv(enforce_unique=("nacimiento",)) == expected_str_3
-
-    def test_export_multi(self):
-        """comprueba la correcta exportación de datos almacenados en modo
-        single = False para la creación de csv individuales a partir de un
-        conjunto de clases"""
-        destination = Path(fr"{Path(__file__).parent}\data\export_destination.csv")
-        new_local_instance = CsvClassSave(str(data_test), None, False, col_sep="|", check_hash=False)
-        for _ in new_local_instance.borrar_datos("[14]"):
+        assert search_count[-1] == 16
+        # remember to always get rid of the header
+        new_values = [value[2] for value in new_instance.leer_datos_csv('"INDICE" > 10')][1:]
+        assert new_values == ["Legacy of Ashes", "Whispering Winds", "Starlight Journey", "The Broken Crown", "Last of the Titans", "Skyfall Odyssey"]
+        last_instance = SingleCsvManager("movies", current_class=writer_object, delimiter=",")
+        last_instance.set_data(*['6', '2006', 'The Silent Hunter', '263068416']).guardar_datos_csv()
+        for entry in last_instance.leer_datos_csv('"gross_income" >= 263068416'):
             pass
-        incorrect_args = [((fr"{destination.parent}\destino.csv", "vehiculo"), "de destino debe ser una ruta valida"),
-                          ((fr"{data_test.parent}\file_test.txt", "vehiculo"), "debe ser de extension .csv"),
-                          ((12, "<class 'vehiculo.Automovil'>"), "el argumento destination debe ser str"),
-                          ((str(destination), True), "class_name debe ser str")]
-        for value, match in incorrect_args:
-            with pytest.raises(ValueError, match=match):
-                new_local_instance.export(*value)
-
-        with pytest.raises(DataExportError, match="cantidad de atributos no corresponde"):
-            # if you use enforce unique you can end with two
-            # rows of a same class header that have an uneven
-            # amount of attributes and you end with a DataExportError
-            new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
-        final_state = ("INDICE|MARCA|MODELO|RUEDAS|VELOCIDAD|CILINDRADA\n"
-                       "[1]|Toyota|Yaris|4|200|1200\n"
-                       "[2]|nissan|360z|4|310|3000\n"
-                       "[3]|ford|skype|4|180|3000\n")
-        new_local_instance.export(str(destination), "<class 'vehiculo.Automovil'>")
-        # newline not really necessary if you are going to read only
-        contents = []
-        with open(str(destination), "r", newline="", encoding="utf-8") as new_reader:
-            read_result = csv.reader(new_reader, delimiter="|")
-            for result in read_result:
-                contents.append("|".join(result) + "\n")
-        assert final_state == "".join(contents)
-        for _ in new_local_instance.borrar_datos("[13]"):
-            pass
-        # doing second test
-        new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
-        final_state = ("INDICE|NOMBRE|EDAD|NACIMIENTO|ESTADO|COMENTARIO\n"
-                       "[1]|Mark ; mayz|40|1984|ca;sado;|;;nada de lo que esta aquí me gustaría decirlo, "
-                       "asi que adios; me despido\n")
-        contents.clear()
-        with open(str(destination), "r", newline="", encoding="utf-8") as new_reader_2:
-            read_result_2 = csv.reader(new_reader_2, delimiter="|")
-            for result_2 in read_result_2:
-                contents.append("|".join(result_2) + "\n")
-        assert final_state == "".join(contents)
-        # third test
-        for _ in new_local_instance.borrar_datos("borrar todo"):
-            pass
-        final_state = ('INDICE;NOMBRE;EDAD;NACIMIENTO;ESTADO;COMENTARIO'
-                       '[1];"aq;uí";0;17;";ahora;";HOLA')
-        new_local_instance.delimiter = ";"
-        # it was false because the original object had no __dict__
-        new_local_instance.can_save = True
-        new_local_instance.object = self.MultiObjectTest(
-            **{"nombre": "aq;uí", "edad": 0, "nacimiento": 17, "estado": ";ahora;", "comentario": "HOLA"})
-        new_local_instance.guardar_datos_csv()
-        new_local_instance.export(str(destination), "<class 'test_csv.TestMultiple.MultiObjectTest'>")
-        # using normal reader because csv reader get rid of the ""
-        # when reading them an joining the result of the list
-        # you still can see how the file is left after the test
-        # to see that it does have the "" on them
-        accumulate = ""
-        with open(str(destination), "r", newline="", encoding="utf-8") as new_reader_3:
-            for result_3 in new_reader_3:
-                # get rid of the \r\n that was in the file
-                accumulate += result_3.strip()
-        assert final_state == accumulate
+        assert entry[-1] == "263068416"
+        assert entry[0] == "[13]"
+        BaseCsvManager.delete_record("new_file", "movies")
+        assert sum(1 for _ in BaseCsvManager.return_current_file_names()) == 0
+        new_dir.rmdir()
+        

@@ -1,0 +1,131 @@
+Syntax guide to write queries
+
+for this file any word that is inside <> has to be view as an user input
+
+-A SEARCH:
+
+there are 3 sections to a search query of which two are optional the first and last part,
+as an example a complete search query may be constructed as it follows:
+
+![<col_name_1>#<col_name_2>] "<col_name_3>" >= 5 | "<col_name_4>" ]= on & "<col_name_5>" != home~SUM:<col_name_6>
+
+the above query has the following structure:
+
+-1 ![<col_name_1>#<col_name_2>]:
+this first optional parameter is use to select what
+columns to show in the search result if omitted all cols are shown
+
+the ! symbols is use to negate the meaning of the following part, inside 
+the [] you write the names of the cols separated by an # which you choose to show or
+hide from the final result depending if you put the ! before the [], when hiding a col 
+the only exception is the index col which is always going to be shown even if is explicitly
+put inside the ![] to hide it.
+
+-2 "<col_name_3>" >= 5 | "<col_name_4>" ]= on & "<col_name_5>" != home:
+this is the main part of the query and the one that has to be always present, here lies the logic used
+to select what rows to include in the final result
+
+each column name must be follow by a logical operator that is use to define what rows are selected,
+the current logical operators that are supported are:
+
+I- >, <, >=, <=: 
+To return the values that are grater (>), less (<), grater or equal (>=) or less than equal (<=) than the value to filter by,
+it alwasy tries to compare the values as numbers first then dates and finally strings (strings are compared using the unicode
+numeric values of each character)
+II- =, !=:
+To return the values that are equal (=) or different (!=) than the value to filter by, the values are always compared as strings
+III- [=, ]=:
+To return the values that start with ([=) or end with (]=) the same characters that the value to filter by does, the values are
+always compared as strings
+IV- <>, <<, >>:
+To return the values that are of equal (<>) shorter (<<) or larger (>>) amount of characters than the value to filter by, the values
+are always compared as string
+
+to chain multiple conditions for a same column or for multiple ones you can use either the | or & logical 
+operators. Chained conditions are evaluated from left to right as they come for the following example 
+"<col_1>" > 0 | "<col_1>" <= 100 & "<col_4>" [= 5 we first check if the value is grater than 0 then 
+if is grater than 100 and finally if it starts with the digit 5. If for a given row you get for each 
+condition the following values true, false, false you are going to end with the following value 
+for the whole row: true or false and false, from true or false you get true and from true and false 
+you get false, having the row the final value of false.
+
+-3 ~SUM:<col_name_6>:
+the last and also optional part is to apply a function to the search result of a query, depending on the function
+(as to this date the program only support the application of only one function at a time per query) 
+they may expect to pass to them a name of a column, a number or nothing after the : symbol, the current supported functions and their meanings go as follow:
+
+I- ASC: returns the search results on ascending order base on the column name passed as argument
+II- AVG: *returns a number, the arithmetic mean value of the passed column name
+III- COUNT: returns a number, the total amount of rows returned
+IV- DESC: returns the search result on descending order base on the column name passed
+V- LIMIT: returns the first x search results that met the search criteria where x is the passed argument after the :
+VI- MAX: returns a number, date (ISO 8601 format) or string which value is the biggest inside the passed column name
+VII- MIN: returns a number, date (ISO 8601 format) or string which value is the smallest inside the passed column name
+VIII- SUM: *returns a number, being the total amount of adding every entry on a row
+IX- UNIQUE: returns only the unique values inside the search results, any duplicated row value in the passed column name is only showed once
+
+*if any value inside the passed column is not a number then the returned value is 0
+
+-B UPDATE:
+
+we can divide an update query on two parts, as example consider the following query:
+
+UPDATE:~"<col_name_1>"=<value> "<col_name_2>"=<value> ON <search_query>
+
+The structure goes as follows:
+
+-1 UPDATE:~"<col_name_1>"=<value> "<col_name_2>"=<value>: 
+this part is the on where you describe the columns to be updated inside a row, you can update up to 4
+columns per query the <col_name> parameter is the name of the col to be updated and the <value> part is the
+value that is going to be updated to. inside the <value> part you can pass update functions that change the value
+to the one returned by the function, the current update functions are:
+
+I- %UPPER: expects 0 argumets and returns the current value all in uppercase
+II- %LOWER: expects 0 argumets and returns the current value all in lowercase
+III- %TITLE: expects 0 arguments and returns the current value with its first letter in uppercase
+IV- %CAPITALIZE: expects 0 arguments and return the current value with the first letter of each word in uppercase
+V- %CEIL: expects 0 arguments only usable in values that are numbers, returns the value rounded up
+VI- %FLOOR: expects 0 arguments only usable in values that are numbers, returns the value rounded down
+VII- %COPY: expects 1 argument, the name of the column to copy the value from, returns the value of that column in the current row
+VIII- %ADD: expects 1 argument, a number, date or string, returns the current value of the row added to the passed argument 
+IX- %SUB: expects 1 argument, a number or a date, returns the current value minus the passed argument
+X- %MUL: expects 1 argument, a number, returns the current value mulptiplied by the passed argument
+XI- %DIV: expects 1 argument, a number, returns the current value divided by the passed argument
+XII- %NUM-FORMAT: expects 1 argument, a number (integer), can only be used on numbers, returns the current value formated to the x number of decimals
+where x is the value of the argument 
+XIII- %RANDOM-INT: expects 2 arguments, both numbers (integers), returns a random int between and including the passed values
+XIV- %REPLACE: expects 2 arguments, both strings the first one is the character to replace and the second is the replacement value,
+returns the current value with the changed characters
+
+THE SYNTAX FOR USING FUNCTIONS GOES AS FOLLOWS:
+
+- functions with 0 arguments:
+"<col_name>"=%<function_name>
+
+- functions with 1 argument:
+"<col_name>"=%<function_name>:~<argument>
+
+- functions with more than 1 argument:
+"<col_name>"=%<function_name>:~<argument_1>#<argument_2>
+
+- *functions that can use the USE:~ selector (DIV, MUL, ADD, SUB):
+"<col_name>"=%<function_name>:~USE:~<col_name_2>
+
+*note: the USE:~ selector functions as a way to use the value of another column in a row
+inside a function and it can not be used with the following functions:
+%UPPER, %LOWER, %CAPITALIZE, %TITLE, %CEIL, %FLOOR, %REPLACE, %RANDOM-INT, %NUM-FORMAT, %COPY. To have this behavior (except for
+%RANDOM-INT since it really does not make sense to mix USE:~ or %COPY with it) you have to do two update operations instead of one
+first you use %COPY to pass the value of a column to another and then you apply the function to that value
+
+-2 <search_query>
+this part is a query using the syntax of a search query as deffined above, you do not need to pass functions or columns
+selector in the query only the main part
+
+-C DELETE
+
+a DELETE query consist of the following syntax:
+
+DELETE ON <search_query>
+
+here <search_query> corresponds to a query using the syntax of a search query as 
+deffined above (the main section is the only onerequired)

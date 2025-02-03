@@ -1,167 +1,153 @@
 import csv
 import re
-import hashlib
-from typing import Generator, Callable, Any
+import tempfile
+from typing import Generator, Callable, Type, TextIO, Self
 from math import isnan, ceil, floor
 from pathlib import Path
 from datetime import date, timedelta
 from keyword import iskeyword
 from dataclasses import make_dataclass
 from random import randint
+from inspect import isclass
 
-# pequeño programa que permite crear, borrar y leer entradas hacia un archivo csv a
-# partir de los valores de una clase
-# modo single = True caracteres reservados | y & para búsquedas, en modo single = False : para exportar
-class CsvClassSave:
-    """clase CsvClassSave una clase para guardar los atributos de instancia de
-    distintas clases en archivos csv
+# BY THIS APPROACH YOU MAKE IT SO YOU CAN ONLY ACCESS THE
+# CLASS ATTRIBUTE FROM THE CLASS ITSELF NOT FROM AN INSTANCE
+# IF SO  YOU GET A ATTRIBUTE ERROR
+# TO KEEP THE BEHAVIOR CONSISTENT YOU NEED TO INHERIT FROM TYPE
+# SINCE TYPE IS THE DEFAULT CLASS CONSTRUCTOR
+class Meta(type):
+    """ metaclass Meta para la clase BaseCsvManager su principal función
+    es servir para definir getters and setters para los atributos de clase de BaseCsvManager"""
+
+    # cantidad máxima de filas que puede tener un archivo csv
+    _max_row_limit: int = 20_000
+    # cantidad máxima de columnas que puede tener un archivo csv
+    _max_col_limit: int = 15
+    # directorio en el cual se crearan los backups
+    _backup = Path(fr"{Path(__file__).parent}\backup")
+
+    @property
+    def max_row_limit(cls) -> int:
+        return cls._max_row_limit
+    
+    @max_row_limit.setter
+    def max_row_limit(cls, value) -> None:
+        if isinstance(value, int):
+            if 0 <= value <= 50_000:
+                cls._max_row_limit = value
+            else:
+                raise ValueError(f"solo se admiten valores entre 0 y 50000 para el máximo de filas pero su valor fue {value}")
+        else:
+            raise ValueError(f"el valor a asignar debe ser un int pero fue {type(value).__name__}")
+    
+    @property
+    def max_col_limit(cls) -> int:
+        return cls._max_col_limit
+    
+    @max_col_limit.setter
+    def max_col_limit(cls, value) -> None:
+        if isinstance(value, int):
+            if 1 < value <= 20:
+                cls._max_col_limit = value
+            else:
+                raise ValueError(f"solo se admiten valores entre 1 y 20 para el máximo de columnas pero su valor fue {value}")
+        else:
+            raise ValueError(f"el valor a asignar debe ser un int pero fue {type(value).__name__}")
+    
+    @property
+    def backup(cls) -> Path:
+        return cls._backup
+    
+    @backup.setter
+    def backup(cls, value) -> None:
+        if isinstance(value, Path):
+            if value.is_dir():
+                cls._backup = value
+            else:
+                raise ValueError(f"el directorio donde se guardan los backup debe ser uno valido pero fue {value}")
+        else: 
+            raise ValueError(f"el valor a asignar debe ser Path pero fue {type(value).__name__}")
+
+# se ocupan clases (dataclasses) ya que permiten definir una capa extra de verificación
+# de tipos de datos de atributos
+class BaseCsvManager(metaclass=Meta):
+    """ clase BaseCsvManager su función es servir como clase base para manejar la
+    verificación de atributos para la clase SingleCsvManager
+
+    Argumentos de clase:
+
+    - max_row_limit: un int que designa la cantidad máxima de filas que puede tener un archivo csv
+
+    - max_col_limit: un int que designa la cantidad máxima de columnas que puede tener un archivo csv
+
+    - backup: una instancia de Path que designa el directorio en el cual se crearan los backups
+
+    para modificar el valor de cualquiera de los atributos de clase anteriores se debe hacer 
+    usando BaseCsvManager.atributo = valor puesto que la implementación no permite cambiar estos 
+    valores desde una instancia de la clase
 
     Argumentos de iniciación:
 
-    - path_file la ruta al archivo csv donde se van a guardar
-    los atributos de clase
-    - class_object objeto del cual se van a guardar los atributos, si el objeto no soporta
-    el método __dict__ no sera posible escribir entradas al csv
-    - single atributo que determina que comportamiento tomara el programa si es True
-    los atributos del objeto serán el encabezado del csv y solo se podrán guardar
-    idealmente objetos de un solo tipo o que tenga la misma cantidad de atributos
-    y nombres que el primer objeto guardado en el csv, si es False se podrán guardar
-    objetos de distintas clases y el encabezado solo permitirá 3 valores para cada una
-    un indice, un nombre de clase y los atributos de cada una
-    - col_sep: el separador usado para las columnas del archivo csv default es '|'
-    - header: los encabezados para las columnas del archivo, debe ser tuple con 3 strings
-    default es ("INDICE", "CLASE", "ATRIBUTOS")
-    - exclude: debe ser una tuple de str con los nombres de los atributos que no se quieran
-    guardar del objeto, esto para evitar guardar atributos que sean de funcionamiento interno
-    (no de iniciación) que no aporten información importante, el default es None e indica que
-    todos los atributos serán guardados, lo atributos a excluir debe ser pasado en una tuple
-    que contenga solo str, para negar la tuple o en otras palabras que envés de que la misma
-    se ejecute incluyendo solo los atributos en ella se debe pasar como primer elemento
-    de la misma el str '!'
-    - check_hash: da la opción para desactivar ella creación y comparación de hashes para determinar
-    si el archivo esta sincronizado con el backup, su default es True, el comportamiento puede ser
-    inesperado si se decide poner como False y algún archivo sufre modificaciones
+    - file_name: un str que designa el nombre que se ocupara para crear el archivo en el backup
+
+    - current_class: una clase (no una instancia de clase) o None que se ocupara para guardar
+    los datos pasados a ella usando el método set_data
+
+    - delimiter: un str que designa el separador que se ocupara para el archivo csv (por defecto es "|")
+
+    - exclude: None o una tuple con str que designa los atributos que se deben excluir o incluir,
+    para que funcione para incluir envés de excluir el primer elemento del tuple debe ser el un "!"
     """
-    # archivo backup de la ruta del csv pasado a esta clase, sirve de respaldo
-    # de la misma y también para habilitar la opción de eliminar entradas del csv
-    # os.path.dirname(os.path.abspath(__file__)) = str(Path(__file__).parent)
-    backup_single = Path(fr"{Path(__file__).parent}\backup\backup_single.csv")
-    backup_multi = Path(fr"{Path(__file__).parent}\backup\backup_multi.csv")
-    # limite máximo de filas por archivo csv es más para no terminar con un programa
-    # muy lento por la gran cantidad de filas y lo poco optimizado que es la búsqueda y borrado
-    # de entradas en un csv en comparación con algo como una base de datos
-    max_row_limit: int = 20_000
 
-    # since we only save a class or object info and everything
-    # in python is an object we use type any for object
-    def __init__(self, path_file: str, class_object: Any = None, single: bool = False, col_sep: str = "|",
-                 header: tuple[str, str, str] = ("INDICE", "CLASE", "ATRIBUTOS"), exclude: None | tuple = None,
-                 check_hash: bool = True) -> None:
-        self.file_path = path_file
-        self.object = class_object
-        self.single = single
-        self.delimiter = col_sep
-        self.header = header
+    def __init__(self, file_name: str, current_class: Type | None = None, 
+                 delimiter: str = "|", exclude: None | tuple = None) -> None:
+        self.file_name = file_name
+        self.current_class = current_class
+        self.delimiter = delimiter
         self.exclude = exclude
-        self.hashing = check_hash
-
-        self.can_save = True
-        if "__dict__" not in dir(self.object):
-            self.can_save = False
-
-        self.accepted_files: tuple[str, str] = (self.file_path,
-                                                str(self.backup_multi if not self.single else self.backup_single))
-        # crea el directorio del backup si no existe
-        backup_directory = Path(self.backup_single.parent)
-        if not backup_directory.is_dir():
-            backup_directory.mkdir()
-        if self.single and not self.backup_single.is_file():
-            with open(str(self.backup_single), "w", newline="", encoding="utf-8") as _:
-                pass
-        elif not self.single and not self.backup_multi.is_file():
-            with open(str(self.backup_multi), "w", newline="", encoding="utf-8") as _:
-                pass
-        # se verifica que el backup y el archivo principal tengan el mismo contenido
-        # a la hora de ejecutar el programa mediante la comparación de un hash de
-        # ambos archivos y son distintos el backup sobre escribe al archivo principal
-        if self.hashing:
-            hash_list: list[str] = []
-            for csv_file in self.accepted_files:
-                # all of this can be done way cleaner
-                # using file_digest from hashlib
-                # but is only supported on newer python versions
-                # hash algorithm
-                hash_ = hashlib.sha256()
-                # buffer size
-                buffer_size = bytearray(128 * 1024)
-                # creates a binary view from a file of size buffer_size
-                buffer_view = memoryview(buffer_size)
-                with open(csv_file, 'rb', buffering=0) as file_hash:
-                    for chunk_ in iter(lambda: file_hash.readinto(buffer_view), 0):
-                        hash_.update(buffer_view[:chunk_])
-                hash_hex: str = hash_.hexdigest()
-                if hash_hex not in hash_list:
-                    hash_list.append(hash_hex)
-
-            # we give priority to the backup the user
-            # shouldn't change the file manually
-            if not self.single:
-                self.current_classes: list = []
-            self.current_rows: int = self.__len__()
-            if len(hash_list) == 2:
-                # like this for the code to execute
-                next(self.borrar_datos(delete_index="borrar todo", rewrite=True))
-        # si el archivo tiene más filas que el limite fijado
-        # entonces el usuario no puede escribir nuevas entradas
-        # our backup must be wipe out and rebuild every time the
-        # program runs to support writing to more than one fixed
-        # csv file
-        # if self.hashing is set to false the len of the current
-        # contents of the backup is use
-        else:
-            if not self.single:
-                self.current_classes: list = []
-            self.current_rows = self.__len__()
-        if self.single:
-            if self.current_rows:
-                self.new_head = tuple((val.upper() for val in next(self.leer_datos_csv(back_up=True))))
+        self.writer_instance = None
+        # si el usuario quiere cambiar el nombre del archivo es mejor que lo haga a
+        # traves de un método
+        self.instance_file_path = Path(fr"{BaseCsvManager.backup}\{self.file_name}.csv")
 
     @property
-    def file_path(self) -> str:
-        return self._file_path
+    def file_name(self) -> str:
+        return self._file_name
 
     # setter para la ruta del archivo csv
     # el usuario debe introducir un str
     # que también sea una ruta existente
     # en el sistema operativo
-    @file_path.setter
-    def file_path(self, value) -> None:
+    @file_name.setter
+    def file_name(self, value) -> None:
         if isinstance(value, str):
-            my_path: Path = Path(value)
-            # is file check if the file exist in the os
-            if my_path.suffix.lower() == ".csv":
-                if my_path.is_file():
-                    self._file_path = value
-                else:
-                    raise ValueError(f"la ruta introducida ({value})\nno existe por favor "
-                                     "cree el archivo en una locación valida")
-            else:
-                raise ValueError("la ruta del archivo debe ser de extension .csv "
-                                 f"y usted entro uno de extension {my_path.suffix}")
+            if re.match(r"^[A-Za-z_0-9\-]{1,25}$", value) is not None:
+                self._file_name = value
+            else: 
+                raise ValueError("el nombre a asignar para el archivo debe solo contener los siguientes caracteres: "
+                                 "letras mayúsculas y minúsculas (a-z pero no ñ), números guiones bajos (_) o guiones (-) y sin espacios en blanco "
+                                 f"pero su valor fue {value}")
         else:
-            raise ValueError(f"el valor introducido debe ser str, pero fue {type(value).__name__}")
+            raise ValueError(f"el valor a asignar debe ser str pero fue {type(value).__name__}")
 
     @property
-    def single(self) -> bool:
-        return self._single
-
-    @single.setter
-    def single(self, value) -> None:
-        if isinstance(value, bool):
-            self._single = value
+    def current_class(self) -> Type:
+        return self._current_class
+    
+    @current_class.setter
+    def current_class(self, value) -> None:
+        # expected behavior is to pass to object
+        # an object not an instance of it
+        # this should cover most cases 
+        # (except metaclass defined class, low level c object,
+        # classes that are also callables)
+        if isclass(value) or value is None:
+            self._current_class = value
+            self.can_save = False if "__dict__" not in dir(self.current_class) else True
         else:
-            raise ValueError(f"el valor debe ser bool pero fue {type(value).__name__}")
-
+            raise ValueError("El valor de class_object debe ser un objeto o None no una instancia del mismo y el uso "
+                             "de este programa se limita a clases que devuelvan True al usarse la función isclass()")
+    
     @property
     def delimiter(self) -> str:
         return self._delimiter
@@ -178,25 +164,6 @@ class CsvClassSave:
                 raise ValueError(f"su valor {value} debe contener solo un carácter")
         else:
             raise ValueError(f"el valor debe ser str pero fue {type(value).__name__}")
-
-    @property
-    def header(self) -> tuple[str]:
-        return tuple((str(val).upper() for val in self._header))
-
-    # setter para el encabezado del csv
-    # debe ser una tuple con tres str
-    @header.setter
-    def header(self, value) -> None:
-        match value:
-            # check that all names of headers are different
-            # this is how you do type pattern matching
-            case tuple((str(), str(), str())):
-                if len(set([val.lower() for val in value])) == 3:
-                    self._header = value
-                else:
-                    raise ValueError(f"el valor debe ser una tuple con 3 str distintos pero fue {value}")
-            case _:
-                raise ValueError(f"el valor debe ser una tuple con 3 str pero este fue {type(value).__name__}: {value}")
 
     @property
     def exclude(self) -> None | tuple[str]:
@@ -222,31 +189,304 @@ class CsvClassSave:
         else:
             raise ValueError(f"el valor debe ser una tuple o None pero fue {type(value).__name__}")
 
-    @property
-    def hashing(self) -> bool:
-        return self._hashing
+    @staticmethod
+    def _create_folders(file_name: Path) -> None:
+        """ método estático privado _create_folders crea los directorios y archivos
+        necesarios para el backup y los archivos csv que almacenara
 
-    @hashing.setter
-    def hashing(self, value) -> None:
-        if isinstance(value, bool):
-            self._hashing = value
+        Argumento:
+
+        - file_name un objeto de tipo Path que designa el archivo csv que se creara
+
+        Valor de retorno:
+
+        - None
+        """
+        directory = Path(file_name.parent)
+        if not directory.is_dir():
+            directory.mkdir()
+        if not file_name.is_file():
+            with open(str(file_name), "w", newline="", encoding="utf-8") as _:
+                pass
+
+    @staticmethod
+    def return_pattern(str_pattern) -> tuple | None:
+        """ método estático publico return_pattern
+
+        Argumento:
+
+        - str_pattern el str en el cual se buscara el patron deseado
+        este método específicamente sirve para saber si el usuario introduce el patron
+        correcto para buscar o eliminar alguna entrada del csv, en nuestro caso el usuario
+        debe ingresar ya sea [numero], [numero:], [numero1:numero2] o [numero1-numero2-numero3]
+
+        Valor de retorno:
+
+        - una tuple donde el primer valor es el tipo de operación, ya sea
+        ':' (por rango), '-' (más de un valor especifico) o None (solo un valor especifico) y el
+        segundo valor es una lista con los valores a eliminar. El valor de retorno es None si
+        no se encontró el patron en el str pattern
+
+        Excepciones:
+
+        - ValueError si el argumento requerido no es del tipo solicitado
+        """
+        if not isinstance(str_pattern, str):
+            raise ValueError(
+                f"debe ingresar un str donde buscar un patron, pero se introdujo {type(str_pattern).__name__}")
+        regex_obj = re.search(r"^\[(?:\d+(:)\d*|(?:\d+(-)){0,9}\d+)\]$", str_pattern)
+        if regex_obj is not None:
+            separator: list = [sep for sep in regex_obj.groups() if sep is not None]
+            str_pattern = re.sub(r"[\[\]]", "", str_pattern)
+            if separator:
+                pattern_nums: list[int] = [int(val) for val in str_pattern.split(separator[0]) if val]
+                pattern_nums.sort()
+                return separator[0], pattern_nums
+            return None, [int(str_pattern), ]
+        return None
+    
+    # siempre consultar en este método si el nuevo archivo a crear (file_name)
+    # existe o no queda a decision del que use esta librería definir que pasa después
+    # ya que el usuario podría esperar seguir escribiendo en un archivo anterior
+    # o crear uno nuevo
+    @staticmethod
+    def return_current_file_names() -> Generator[str, None, None]:
+        """ método estático publico return_current_file_names
+
+        Argumentos:
+
+        - None
+
+        Valor de retorno:
+
+        - un generador que permite enviar de uno en uno los nombres de los archivos
+        presentes en el backup actual
+        """
+        for child_content in BaseCsvManager.backup.iterdir():
+            if child_content.is_file() and child_content.suffix == ".csv":
+                yield str(child_content.stem)
+
+    # para eliminar archivos existentes en el backup
+    @staticmethod
+    def delete_record(*args) -> None:
+        """ método estático publico delete_record
+        
+        Argumentos:
+
+        - args de cantidad variable los que se esperan que sean los
+        nombres de los archivos a eliminar del backup presente, si entre 
+        los argumentos se pasa el valor "borrar todo" se eliminaran todos los archivos
+
+        Valor de retorno:
+
+        - None
+        """
+        file_names = []
+        for val in args:
+            if isinstance(val, str):
+                file_names.append(val)
+        if file_names:
+            if "borrar todo" in file_names:
+                for csv_file in BaseCsvManager.return_current_file_names():
+                    Path(fr"{BaseCsvManager.backup}\{csv_file}.csv").unlink(missing_ok=True)
+            else:
+                for present_file in BaseCsvManager.return_current_file_names():
+                    if present_file in file_names:
+                        Path(fr"{BaseCsvManager.backup}\{present_file}.csv").unlink(missing_ok=True)
+
+    def rename_file(self, new_name) -> None:
+        """ método público rename_file
+        
+        Argumento:
+
+        - new_name el nuevo nombre que tendrá el archivo en el backup
+
+        Valor de retorno:
+
+        - None
+
+        Excepciones:
+
+        - ValueError si el argumento new_name no cumple con las restricciones
+        impuestas para nombrar archivos en el backup    
+        """
+        # this is to call the property setter
+        self.file_name = new_name
+        self.instance_file_path: Path = self.instance_file_path.rename(Path(fr"{BaseCsvManager.backup}\{new_name}.csv"))
+
+    # right way of passing data to current object
+    # TEST GUARDAR_DATOS WITH WRITER_INSTANCE = NONE AND CHANGE THE CORRESPONDING TEST 
+    # TO MATCH THE CURRENT WAY DATA IS PASSED TO AN OBJECT
+    # TEST CURRENT OBJECT SETTER AND GETTER
+    # warning or error I don't know
+    # should I use a custom error here
+    def set_data(self, *args, **kwargs) -> Self | None:
+        """ método público set_data permite pasar datos a la clase
+        actual del atributo current_class
+
+        Argumentos:
+
+        - args o kwargs de cantidad variable los cuales son pasados a current_class
+        para su iniciación
+
+        Valor de retorno:
+
+        - la instancia actual de la clase si current_class no es None de lo contrario se retorna None
+
+        Excepciones:
+
+        - ValueError si alguno de los argumentos pasados a current_class
+        no son los esperados
+        """
+        if self.can_save:
+            try:
+                self.writer_instance = self.current_class(*args, **kwargs)
+            except Exception as base_error:
+                raise ValueError(f"no se pudo realizar el paso de datos a la clase actual debido al siguiente error: {base_error}")
+            return self
+        return None
+
+# IMPORTANTE PARA LEER Y ESCRIBIR A UN CSV QUE YA TENIA DATOS
+# DEBES PASAR ESE ARCHIVO USANDO EL MÉTODO DE CLASE INDEX PRIMERO
+# A SI SE COPIAN SUS DATOS AL BACKUP Y AL INICIAR LA CLASE EN FILE_NAME
+# SE DEBE PASAR YA SEA ESE MISMO NOMBRE DE ARCHIVO (SI SE QUIERE QUE LOS CAMBIOS SE EFECTÚEN
+# SOBRE EL MISMO) U OTRO NUEVO (DONDE SE HARÁN TODOS LOS CAMBIOS PUDIENDO ASÍ MANTENER
+# LA FUENTE ORIGINAL DE LOS DATOS) Y SE DEBE PASAR EL RESULTADO DE RETORNO DE INDEX A CURRENT_CLASS DE LO CONTRARIO
+# SI SE PARTE SIN DATOS Y SE QUIERE EMPEZAR A ESCRIBIR LOS DATOS DE UNA CLASE A UN ARCHIVO
+# EN BLANCO PASE LA CLASE DEL OBJETO A CURRENT_CLASS
+
+class SingleCsvManager(BaseCsvManager):
+    """ clase SingleCsvManager su función es permitir realizar operaciones
+    de lectura, escritura, edición y borrado de los datos en un archivo csv
+
+    Los argumentos de iniciación son los mismos que ocupa la clase BaseCsvManager, por lo que se
+    recomienda referirse a la documentación de esa clase para obtener más información
+    """   
+
+    def __init__(self, file_name: str, current_class: Type | None = None, delimiter: str = "|", 
+                 exclude: None | tuple = None) -> None:
+        super().__init__(file_name, current_class, delimiter, exclude)
+        self._create_folders(self.instance_file_path)
+        # format the current file correctly
+        # so the index col is as expected
+        self.current_rows: int = self.__len__()
+        if self.current_rows:
+            self.new_head = tuple((val.upper() for val in next(self.leer_datos_csv())))
+
+    def guardar_datos_csv(self, enforce_unique=None) -> str:
+        """ método publico guardar_datos_csv
+        permite escribir una nueva entrada en un archivo csv y retornar la nueva entrada añadida
+
+        Argumentos:
+
+        - enforce unique puede ser None o una tuple con str, permite decidir si
+        el valor del o los atributos de la clase debe ser único con respecto a los presentes en el csv,
+        si es tuple debe ser de la siguiente forma ('nombre_atributo',) para un atributo y
+        ('nombre_atributo1', 'nombre_atributo2', 'nombre_atributo3') para multiples ideal si se guardan
+        atributos de solo una clase o un conjunto de clases con un padre y atributos en común, si su
+        valor es None no se chequea que el atributo deba ser único
+
+        Valor de retorno:
+
+        - un str de la nueva entrada creada y si se especifico enforce unique y se encontró
+        que la entrada a guardar ya estaba presente se retorna el str presente, si los datos no fueron
+        pasados a la instancia (atributo current_class) apropiadamente o se supera el máximo de filas o columnas
+        por archivo se retorna un str que comienza con un mensaje de advertencia como "Advertencia: "
+
+        Excepciones:
+
+        - ValueError si el valor del argumento no es el apropiado o
+        se intenta guardar una entrada con más valores (atributos) que la cantidad de columnas
+        disponibles o con nombres de valores que no sean iguales a los ya presentes (nombre columnas)
+        """
+        if not self.can_save:
+            return (f"\nAdvertencia: Actualmente esta ocupando un objeto de tipo {type(self.current_class).__name__}"
+                    "el cual no posee un __dict__ por lo que es imposible guardar entradas con él")
+        if self.writer_instance is None:
+            return ("\nAdvertencia: Para poder crear una nueva entrada primero debe pasar sus datos usando el método set_data "
+                    "para acceder a métodos de su clase pasada o cambiar sus datos debe hacerlo a través del atributo writer_instance")   
+        # self.current_rows can't be less than zero so even if self.max_row_limit
+        # is negative (truthy) the firs condition still checks
+        if self.current_rows - 1 >= BaseCsvManager.max_row_limit or not BaseCsvManager.max_row_limit:
+            return ("\nAdvertencia: Su entrada no fue creada ya que para mantener la eficiencia de este programa "
+                    f"recomendamos\nlimitar el numero de entrada a {BaseCsvManager.max_row_limit - 3_000} "
+                    f"favor de ir a\n{self.instance_file_path}\nhacer una, copia reiniciar el programa y\n"
+                    "borrar todas las entradas para proseguir normalmente\nde aquí en adelante "
+                    "solo se aceptaran operaciones de lectura y borrado de entradas solamente")
+        
+        if enforce_unique is not None and self.current_rows > 1:
+            if not isinstance(enforce_unique, tuple):
+                raise ValueError(
+                    f"el parámetro enforce_unique debe ser una tuple pero fue {type(enforce_unique).__name__}")
+            elif not enforce_unique:
+                raise ValueError(f"la tuple debe contener al menos un str")
+            elif not all([isinstance(item, str) for item in enforce_unique]):
+                raise ValueError(
+                    "la tuple solo debe contener str "
+                    f"su tuple contiene {', '.join([str(type(item).__name__) for item in enforce_unique])}")
+            # strip("_") para eliminar el _ que es puesto cuando
+            # se tiene atributos que usan algún tipo decorador como
+            # el property y setter
+            # asi puedo buscar en atributos no consecutivos para ver si son únicos
+            vals_to_check = " | ".join([f'"{str(key).strip("_")}" = {val}' for
+                                        key, val in self.writer_instance.__dict__.items() if
+                                        str(key).strip("_") in enforce_unique])
+            skip_first = self.leer_datos_csv(search=vals_to_check)
+            next(skip_first)
+            for _ in skip_first:
+                return "presente"
+        if self.exclude is not None:
+            if self.exclude[0] == "!":
+                class_repr = [(str(key).strip('_').upper(),
+                                str(val)) for key, val in self.writer_instance.__dict__.items()
+                                if str(key).strip("_") in self.exclude]
+            else:
+                class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.writer_instance.__dict__.items()
+                                if str(key).strip("_") not in self.exclude]
         else:
-            raise ValueError(f"el valor debe ser bool pero fue {type(value).__name__}")
+            class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.writer_instance.__dict__.items()]
+        if len(class_repr) > BaseCsvManager.max_col_limit:
+            return ("\nAdvertencia su entrada no fue creada ya que el objeto a guardar contiene un "
+                    f"__dict__ que supera el máximo de columnas que puede tener un objeto ({BaseCsvManager.max_col_limit}) "
+                    "puede usar el argumento exclude de esta clase para excluir algunos atributos y disminuir el número de columnas")
+        if not self.current_rows:
+            with open(self.instance_file_path, "a", newline="", encoding="utf-8") as csv_writer:
+                write = csv.writer(csv_writer, delimiter=self.delimiter)
+                if self.exclude is not None:
+                    if self.exclude[0] == "!":
+                        self.new_head = ["INDICE", *[str(key).strip("_").upper() for key in self.writer_instance.__dict__ if
+                                            str(key).strip("_") in self.exclude]]
+                        write.writerow(self.new_head)
+                    else:
+                        self.new_head = ["INDICE", *[str(key).strip("_").upper() for key in self.writer_instance.__dict__ if
+                                            str(key).strip("_") not in self.exclude]]
+                        write.writerow(self.new_head)
+                else:
+                    self.new_head = ["INDICE", *[str(key).strip("_").upper() for key in self.writer_instance.__dict__]]
+                    write.writerow(self.new_head)
+            self.current_rows += 1
+        if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
+            raise ValueError("solo se permiten objetos "
+                            "con el mismo número de atributos y nombres "
+                            f"que el actual {', '.join(self.new_head[1:])}")
+        with open(self.instance_file_path, "a", newline="", encoding="utf-8") as csv_writer:
+            write = csv.writer(csv_writer, delimiter=self.delimiter)
+            self.current_rows += 1
+            write.writerow([f"[{self.current_rows - 1}]", *[val[1] for val in class_repr]])
+        return (f"\n{f'{self.delimiter}'.join([*self.new_head])}\n[{self.current_rows - 1}]"
+                    f"{self.delimiter}{f'{self.delimiter}'.join([val[1] for val in class_repr])}")
 
-    # a generator can have 3 types of value the type of the
-    # yield value (first value), the type of the return value (third value, an exhausted iterator
-    # raises an StopIteration error and the value of it is the value of the return)
-    # and the second value is the type of the value an iterator can accept from outside using
-    # the .send() method of a generator
-    def leer_datos_csv(self, search="", back_up=False, escaped=False, query_functions=True) -> Generator[list[str] | str, None, str]:
-        """método publico leer_datos_csv
+
+    def leer_datos_csv(self, search="", escaped=False, query_functions=True) -> Generator[list[str] | str, None, str]:
+        """ método publico leer_datos_csv
 
         Argumentos:
 
         - search es la str que se usa para buscar dentro del csv
-        - back_up es para buscar en el csv de backup envés del original
+
         - escaped es para saber si se debe escapar algún carácter especial
         en el search str cuando se realize la búsqueda mediante expresiones regulares
+
         - query_function es para determinar si se debe aplicar o no las funciones
         pasadas en una query
 
@@ -254,7 +494,18 @@ class CsvClassSave:
 
         - un generador que permite enviar de una en una las lineas dentro del archivo csv
         Para saber que sintaxis es ocupada para buscar por indice refiérase al método estático publico
-        return_pattern
+        return_pattern (siempre el primer dato enviado sera el encabezado del csv 
+        independiente de la query usada en el argumento search). Si se ocupa alguna de las siguientes funciones
+        en una query (UNIQUE, MIN, MAX, SUM, AVG, COUNT) adicionalmente el ultimo item tendrá la siguiente estructura:
+
+        1- si fue MIN, MAX, SUM, AVG: una lista donde el primer item es el nombre de la operación, el segundo es la
+        columna en la cual se efectuó y el ultimo el resultado de la operación (si se ocupa en datos no numéricos es 0)
+
+        2- si fue COUNT: una lista con dos items el primero el nombre de la operación y el segundo el total de entradas
+
+        3- si fue UNIQUE: una lista con 4 items el primero el nombre de la operación, el segundo la columna donde
+        fue aplicada, el tercero un set de los valores duplicados en la columna si es que hubo y el cuarto el total
+        de filas con valores únicos
 
         Excepciones:
 
@@ -262,13 +513,11 @@ class CsvClassSave:
         """
         if not isinstance(search, str):
             raise ValueError(f"el argumento search debe ser un str pero fue {type(search).__name__}")
-        for name, item in {"back_up": back_up, "escaped": escaped}.items():
+        for name, item in {"escaped": escaped, "query_functions": query_functions}.items():
             if not isinstance(item, bool):
                 raise ValueError(f"el argumento {name} debe ser un bool pero fue {type(item).__name__}")
         if self.current_rows > 0:
-            with open(str(self.file_path) if not back_up
-                      else (str(self.backup_multi) if not self.single else str(self.backup_single)),
-                      "r", newline="", encoding="utf-8") as csv_reader:
+            with open(str(self.instance_file_path), "r", newline="", encoding="utf-8") as csv_reader:
                 read = csv.reader(csv_reader, delimiter=self.delimiter)
                 # usando generadores para evitar cargar todo el archivo a memoria
                 if search:
@@ -300,420 +549,285 @@ class CsvClassSave:
                                 # that mark is the biggest one
                                 elif count > mark:
                                     break
-                    else:
-                        if self.single:
-                            list_of_match: list = self.__query_parser(search)
-                            if list_of_match:
-                                except_col = ()
-                                if isinstance(list_of_match[0], tuple):
-                                    except_col = except_col + list_of_match.pop(0)
-                                    header = next(read)
-                                    yield [header[0]] + [header[val] for val in range(1, len(header)) if
-                                                         val not in except_col]
+                    elif (list_of_match:= self.__query_parser(search)):
+                        except_col = ()
+                        if isinstance(list_of_match[0], tuple):
+                            except_col = except_col + list_of_match.pop(0)
+                            header = next(read)
+                            yield [header[0]] + [header[val] for val in range(1, len(header)) if
+                                                val not in except_col]
+                        else:
+                            yield next(read)
+                        function_match: list = []
+                        if list_of_match and isinstance(list_of_match[-1], str):
+                            if query_functions:
+                                operand, column, *_ = str(list_of_match.pop()).split(":")
+                                if operand == "COUNT":
+                                    function_match += ["COUNT", 0]
+                                elif operand == "LIMIT":
+                                    try:
+                                        limit_result = int(column)
+                                    except ValueError:
+                                        pass
+                                    else:
+                                        if limit_result > 0:
+                                            function_match += ["LIMIT", limit_result + 1]
+                                elif column and column.upper() in self.new_head:
+                                    col_index = self.new_head.index(str(column).upper())
+                                    if not except_col or col_index not in except_col:
+                                        if operand == "AVG":
+                                            function_match += [operand, 0, 0, col_index]
+                                        elif operand == "MIN":
+                                            function_match += [operand, [float("inf"), None], col_index]
+                                        elif operand == "MAX":
+                                            function_match += [operand, [float("-inf"), None], col_index]
+                                        elif operand == "SUM":
+                                            function_match += [operand, 0, col_index]
+                                        elif operand == "UNIQUE":
+                                            function_match += [operand, set(), [0, set()], col_index]
+                                        elif operand == "ASC" or operand == "DESC":
+                                            header_offset = sum((1 for item in except_col if item < col_index))
+                                            function_match += [operand, [], col_index - header_offset, col_index]
+                            else:
+                                list_of_match.pop()
+                        for row in read:
+                            bool_values: list = []
+                            # add function to get the last or first letter and write test
+                            # [= is the str star with operator and ]= is the str end with operator
+                            # for a = "hola" a[5] gives index error but a[5:] or a[5:10] gives ""
+                            operation_hash_table: dict[str, Callable] = {
+                            ">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
+                            "<": lambda x, y: x < y, ">": lambda x, y: x > y,
+                            "=": lambda x, y: x == y, "!=": lambda x, y: x != y,
+                            "[=": lambda x, y: str(y).lower() in str(x)[0:len(str(y))].lower(), 
+                            "]=": lambda x, y: str(y).lower() in str(x)[-len(str(y)):].lower(),
+                            "<>": lambda x, y: len(x) == y, ">>": lambda x, y: len(x) > y,
+                            "<<": lambda x, y: len(x) < y,
+                            }
+                            for element in list_of_match:
+                                if isinstance(element, list):
+                                    try:
+                                        head_index = self.new_head.index(element[0])
+                                    except IndexError:
+                                        # error if col that logical operator is applied to 
+                                        # is not a valid col name (does not exist)
+                                        yield "error de sintaxis"
+                                        return "sintaxis no valida búsqueda terminada"
+                                    # so you can search from index to
+                                    if head_index > 0:
+                                        val = row[head_index]
+                                    else:
+                                        # for suing [= ]= with index you don't have to consider []
+                                        val = re.sub(r"[\[\]]", "", row[head_index])
+                                    # should always be present on dict no need for get
+                                    parse_function: Callable = operation_hash_table[element[1]] 
+                                    if element[1] in ("]=", "[=",):
+                                        # this operator only accept values as str no matter if both can
+                                        # be numbers of dates otherwise when parsing to float the comparison
+                                        # may be False when is True
+                                        # since both are string for this case
+                                        # no error should be expected to be raised
+                                        bool_values.append(parse_function(val, element[-1]))
+                                    elif element[1] in ("<>", "<<", ">>",):
+                                        try:
+                                            bool_values.append(parse_function(str(val), int(element[-1])))
+                                        except ValueError:
+                                            bool_values.append(False)
+                                    else:
+                                        try:
+                                            row_val, expected_val = float(val), float(element[-1])
+                                        except ValueError:
+                                            pass
+                                        else:
+                                            bool_values.append(parse_function(row_val, expected_val))
+                                            continue
+                                        try:
+                                            # the only standard I will support
+                                            row_time = date.fromisoformat(val) 
+                                            expected_time = date.fromisoformat(element[-1])
+                                        except ValueError:
+                                            pass
+                                        else:
+                                            bool_values.append(parse_function(row_time, expected_time))
+                                            continue
+                                        try:
+                                            bool_values.append(parse_function(val, element[-1]))
+                                        except TypeError:
+                                            bool_values.append(False)
                                 else:
-                                    yield next(read)
-                                function_match: list = []
-                                if list_of_match and isinstance(list_of_match[-1], str):
-                                    if query_functions:
-                                        operand, column, *_ = str(list_of_match.pop()).split(":")
-                                        if operand == "COUNT":
-                                            function_match += ["COUNT", 0]
-                                        elif operand == "LIMIT":
+                                    bool_values.append(element)
+                            if not bool_values:
+                                yield "error de sintaxis"
+                                return "sintaxis no valida búsqueda terminada"
+                            else:
+                                current_value = bool_values[0]
+                                if len(bool_values) != 1:
+                                    operation = "?"
+                                    for item in bool_values:
+                                        if item == "|":
+                                            operation = "|"
+                                        elif item == "&":
+                                            operation = "&"
+                                        else:
+                                            if operation == "|":
+                                                current_value = current_value or item
+                                            elif operation == "&":
+                                                current_value = current_value and item
+                                if current_value:
+                                    if function_match:
+                                        if function_match[0] == "LIMIT":
+                                            function_match[-1] -= 1
+                                            if function_match[-1] == 0:
+                                                return ("se alcanzo el limite de entradas "
+                                                        f"requeridas LIMIT:{function_match[-1]}")
+                                        elif function_match[0] == "COUNT":
+                                            function_match[-1] += 1
+                                        elif function_match[0] in ("UNIQUE", "PRESENT"):
+                                            before_len = len(function_match[1])
+                                            current_value = row[function_match[-1]]
+                                            function_match[1].add(current_value)
+                                            # the total count of entries (with repeated values)
+                                            function_match[2][0] += 1
+                                            # if the item was not present is unique
+                                            # otherwise it was there already
+                                            if before_len != len(function_match[1]):
+                                                function_match[0] = "UNIQUE"
+                                            else:
+                                                # appending to the list of repeated values
+                                                function_match[2][-1].add(current_value)
+                                                function_match[0] = "PRESENT"
+                                        elif function_match[0] in ("ASC", "DESC"):
+                                            if except_col:
+                                                function_match[1].append(
+                                                    [row[0]] + [row[item] for item in
+                                                                range(1, len(row)) if
+                                                                item not in except_col])
+                                            else:
+                                                function_match[1].append(row)
+                                        else:
+                                            function_val = row[function_match[-1]]
+                                            for is_type in (float, date.fromisoformat, str):
+                                                try:
+                                                    val_type = is_type(function_val)
+                                                except ValueError:
+                                                    pass
+                                                else:
+                                                    if (function_match[0] == "AVG" and not 
+                                                            isnan(function_match[1])):
+                                                        try:
+                                                            function_match[1] += val_type
+                                                            function_match[2] += 1
+                                                        except TypeError:
+                                                            function_match[1] = float("nan")
+                                                            function_match[2] = 0
+                                                    elif function_match[0] == "MAX":
+                                                        if (function_match[1][0] == float("-inf") 
+                                                                and isinstance(val_type, date)):
+                                                            function_match[1][0] = val_type
+                                                        else:
+                                                            if function_match[1][0] != "STR":
+                                                                try:
+                                                                    if val_type > function_match[1][0]:
+                                                                        function_match[1][0] = val_type
+                                                                except TypeError:
+                                                                    function_match[1][0] = "STR"
+                                                                if function_match[1][1] is not None:
+                                                                    if function_val > function_match[1][1]:
+                                                                        function_match[1][1] = function_val
+                                                                else:
+                                                                    function_match[1][1] = function_val
+                                                            else:
+                                                                if function_val > function_match[1][1]:
+                                                                    function_match[1][1] = function_val
+                                                    elif function_match[0] == "MIN":
+                                                        if (function_match[1][0] == float("inf") 
+                                                                and isinstance(val_type, date)):
+                                                            function_match[1][0] = val_type
+                                                        else:
+                                                            if function_match[1][0] != "STR":
+                                                                try:
+                                                                    if val_type < function_match[1][0]:
+                                                                        function_match[1][0] = val_type
+                                                                except TypeError:
+                                                                    function_match[1][0] = "STR"
+                                                                if function_match[1][1] is not None:
+                                                                    if function_val < function_match[1][1]:
+                                                                        function_match[1][1] = function_val
+                                                                else:
+                                                                    function_match[1][1] = function_val
+                                                            else:
+                                                                if function_val < function_match[1][1]:
+                                                                    function_match[1][1] = function_val
+                                                    elif (function_match[0] == "SUM" and not 
+                                                            isnan(function_match[1])): 
+                                                        try:
+                                                            function_match[1] += val_type
+                                                        except TypeError:
+                                                            function_match[1] = float("nan")
+                                                    break
+                                        # this is only because this two functions should 
+                                        # be able to yield rows at this point
+                                        if function_match[0] not in ("LIMIT", "UNIQUE"):
+                                            continue
+                                    if except_col:
+                                        yield [row[0]] + [row[item] for item in range(1, len(row)) if
+                                                        item not in except_col]
+                                    else:
+                                        yield row
+                        if function_match:
+                            if len(function_match) == 4:
+                                if function_match[0] not in ("UNIQUE", "PRESENT"):
+                                    if function_match[0] not in ("ASC", "DESC"):
+                                        yield ["AVG", self.new_head[function_match[-1]],
+                                            function_match[1] / function_match[2] if function_match[2] else 0]
+                                    else:
+                                        for types_comp in (float, date.fromisoformat, str):
                                             try:
-                                                limit_result = int(column)
+                                                function_match[1].sort(
+                                                    key=lambda x: types_comp(x[function_match[2]]),
+                                                    reverse=True if function_match[0] == "DESC" else False)
                                             except ValueError:
                                                 pass
                                             else:
-                                                if limit_result > 0:
-                                                    function_match += ["LIMIT", limit_result + 1]
-                                        elif column and column.upper() in self.new_head:
-                                            col_index = self.new_head.index(str(column).upper())
-                                            if not except_col or col_index not in except_col:
-                                                if operand == "AVG":
-                                                    function_match += [operand, 0, 0, col_index]
-                                                elif operand == "MIN":
-                                                    function_match += [operand, [float("inf"), None], col_index]
-                                                elif operand == "MAX":
-                                                    function_match += [operand, [float("-inf"), None], col_index]
-                                                elif operand == "SUM":
-                                                    function_match += [operand, 0, col_index]
-                                                elif operand == "UNIQUE":
-                                                    function_match += [operand, set(), col_index]
-                                                elif operand == "ASC" or operand == "DESC":
-                                                    header_offset = sum((1 for item in except_col if item < col_index))
-                                                    function_match += [operand, [], col_index - header_offset, col_index]
-                                    else:
-                                        list_of_match.pop()
-                                for row in read:
-                                    bool_values: list = []
-                                    # add function to get the last or first letter and write test
-                                    # [= is the str star with operator and ]= is the str end with operator
-                                    # for a = "hola" a[5] gives index error but a[5:] or a[5:10] gives ""
-                                    operation_hash_table: dict[str, Callable] = {
-                                    ">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
-                                    "<": lambda x, y: x < y, ">": lambda x, y: x > y,
-                                    "=": lambda x, y: x == y, "!=": lambda x, y: x != y,
-                                    "[=": lambda x, y: str(y).lower() in str(x)[0:len(str(y))].lower(), 
-                                    "]=": lambda x, y: str(y).lower() in str(x)[-len(str(y)):].lower(),
-                                    }
-                                    for element in list_of_match:
-                                        if isinstance(element, list):
-                                            try:
-                                                head_index = self.new_head.index(element[0])
-                                            except IndexError:
-                                                # error if col that logical operator is applied to 
-                                                # is not a valid col name (does not exist)
-                                                yield "error de sintaxis"
-                                                return "sintaxis no valida búsqueda terminada"
-                                            # so you can search from index to
-                                            if head_index > 0:
-                                                val = row[head_index]
-                                            else:
-                                                # for suing [= ]= with index you don't have to consider []
-                                                val = re.sub(r"[\[\]]", "", row[head_index])
-                                            # should always be present on dict no need for get
-                                            parse_function: Callable = operation_hash_table[element[1]] 
-                                            if element[1] in ("]=", "[=",):
-                                                # this operator only accept values as str no matter if both can
-                                                # be numbers of dates otherwise when parsing to float the comparison
-                                                # may be False when is True
-                                                try:
-                                                    bool_values.append(parse_function(val, element[-1]))
-                                                except TypeError:
-                                                    bool_values.append(False)
-                                            else:
-                                                try:
-                                                    row_val, expected_val = float(val), float(element[-1])
-                                                except ValueError:
-                                                    pass
-                                                else:
-                                                    bool_values.append(parse_function(row_val, expected_val))
-                                                    continue
-                                                try:
-                                                    # the only standard I will support
-                                                    row_time = date.fromisoformat(val) 
-                                                    expected_time = date.fromisoformat(element[-1])
-                                                except ValueError:
-                                                    pass
-                                                else:
-                                                    bool_values.append(parse_function(row_time, expected_time))
-                                                    continue
-                                                try:
-                                                    bool_values.append(parse_function(val, element[-1]))
-                                                except TypeError:
-                                                    bool_values.append(False)
-                                        else:
-                                            bool_values.append(element)
-                                    if not bool_values:
-                                        yield "error de sintaxis"
-                                        return "sintaxis no valida búsqueda terminada"
-                                    else:
-                                        current_value = bool_values[0]
-                                        if len(bool_values) != 1:
-                                            operation = "?"
-                                            for item in bool_values:
-                                                if item == "|":
-                                                    operation = "|"
-                                                elif item == "&":
-                                                    operation = "&"
-                                                else:
-                                                    if operation == "|":
-                                                        current_value = current_value or item
-                                                    elif operation == "&":
-                                                        current_value = current_value and item
-                                        if current_value:
-                                            if function_match:
-                                                if function_match[0] == "LIMIT":
-                                                    function_match[-1] -= 1
-                                                    if function_match[-1] == 0:
-                                                        return ("se alcanzo el limite de entradas "
-                                                                f"requeridas LIMIT:{function_match[-1]}")
-                                                elif function_match[0] == "COUNT":
-                                                    function_match[-1] += 1
-                                                elif function_match[0] in ("UNIQUE", "PRESENT"):
-                                                    before_len = len(function_match[1])
-                                                    function_match[1].add(row[function_match[-1]])
-                                                    if before_len != len(function_match[1]):
-                                                        function_match[0] = "UNIQUE"
-                                                    else:
-                                                        function_match[0] = "PRESENT"
-                                                elif function_match[0] in ("ASC", "DESC"):
-                                                    if except_col:
-                                                        function_match[1].append(
-                                                            [row[0]] + [row[item] for item in
-                                                                        range(1, len(row)) if
-                                                                        item not in except_col])
-                                                    else:
-                                                        function_match[1].append(row)
-                                                else:
-                                                    function_val = row[function_match[-1]]
-                                                    for is_type in (float, date.fromisoformat, str):
-                                                        try:
-                                                            val_type = is_type(function_val)
-                                                        except ValueError:
-                                                            pass
-                                                        else:
-                                                            if (function_match[0] == "AVG" and not 
-                                                                    isnan(function_match[1])):
-                                                                try:
-                                                                    function_match[1] += val_type
-                                                                    function_match[2] += 1
-                                                                except TypeError:
-                                                                    function_match[1] = float("nan")
-                                                                    function_match[2] = 0
-                                                            elif function_match[0] == "MAX":
-                                                                if (function_match[1][0] == float("-inf") 
-                                                                        and isinstance(val_type, date)):
-                                                                    function_match[1][0] = val_type
-                                                                else:
-                                                                    if function_match[1][0] != "STR":
-                                                                        try:
-                                                                            if val_type > function_match[1][0]:
-                                                                                function_match[1][0] = val_type
-                                                                        except TypeError:
-                                                                            function_match[1][0] = "STR"
-                                                                        if function_match[1][1] is not None:
-                                                                            if function_val > function_match[1][1]:
-                                                                                function_match[1][1] = function_val
-                                                                        else:
-                                                                            function_match[1][1] = function_val
-                                                                    else:
-                                                                        if function_val > function_match[1][1]:
-                                                                            function_match[1][1] = function_val
-                                                            elif function_match[0] == "MIN":
-                                                                if (function_match[1][0] == float("inf") 
-                                                                        and isinstance(val_type, date)):
-                                                                    function_match[1][0] = val_type
-                                                                else:
-                                                                    if function_match[1][0] != "STR":
-                                                                        try:
-                                                                            if val_type < function_match[1][0]:
-                                                                                function_match[1][0] = val_type
-                                                                        except TypeError:
-                                                                            function_match[1][0] = "STR"
-                                                                        if function_match[1][1] is not None:
-                                                                            if function_val < function_match[1][1]:
-                                                                                function_match[1][1] = function_val
-                                                                        else:
-                                                                            function_match[1][1] = function_val
-                                                                    else:
-                                                                        if function_val < function_match[1][1]:
-                                                                            function_match[1][1] = function_val
-                                                            elif (function_match[0] == "SUM" and not 
-                                                                    isnan(function_match[1])): 
-                                                                try:
-                                                                    function_match[1] += val_type
-                                                                except TypeError:
-                                                                    function_match[1] = float("nan")
-                                                            break
-                                                if function_match[0] not in ("LIMIT", "UNIQUE"):
-                                                    continue
-                                            if except_col:
-                                                yield [row[0]] + [row[item] for item in range(1, len(row)) if
-                                                                  item not in except_col]
-                                            else:
-                                                yield row
-                                if function_match:
-                                    if len(function_match) == 4:
-                                        if function_match[0] not in ("ASC", "DESC"):
-                                            yield ["AVG", self.new_head[function_match[-1]],
-                                                   function_match[1] / function_match[2] if function_match[2] else 0]
-                                        else:
-                                            for types_comp in (float, date.fromisoformat, str):
-                                                try:
-                                                    function_match[1].sort(
-                                                        key=lambda x: types_comp(x[function_match[2]]),
-                                                        reverse=True if function_match[0] == "DESC" else False)
-                                                except ValueError:
-                                                    pass
-                                                else:
-                                                    break
-                                            for sorted_item in function_match[1]:
-                                                yield sorted_item
-                                    elif len(function_match) == 3:
-                                        if function_match[0] not in ("UNIQUE", "PRESENT"):
-                                            if function_match[0] not in ("MIN", "MAX"):
-                                                yield [function_match[0], self.new_head[function_match[-1]],
-                                                       function_match[1] if not isnan(function_match[1]) else 0]
-                                            else:
-                                                yield [function_match[0], self.new_head[function_match[-1]],
-                                                       function_match[1][0] if function_match[1][0] != "STR" 
-                                                       else function_match[1][1]]
-                                        else:
-                                            yield ["UNIQUE", self.new_head[function_match[-1]], len(function_match[1])]
-                                    # LIMIT might be able to get to here in is set
-                                    # bigger than the total amount of entries on a search
-                                    elif function_match[0] == "COUNT":
-                                        yield ["COUNT", function_match[-1]]
-                                return "búsqueda completa"
-                                # for compatibility
+                                                break
+                                        for sorted_item in function_match[1]:
+                                            yield sorted_item
+                                else:
+                                    yield ["UNIQUE", self.new_head[function_match[-1]], function_match[2][-1], function_match[2][0]]
+                            elif len(function_match) == 3:
+                                if function_match[0] not in ("MIN", "MAX"):
+                                    yield [function_match[0], self.new_head[function_match[-1]],
+                                        function_match[1] if not isnan(function_match[1]) else 0]
+                                else:
+                                    yield [function_match[0], self.new_head[function_match[-1]],
+                                        function_match[1][0] if function_match[1][0] != "STR" 
+                                        else function_match[1][1]]
+                            # LIMIT might be able to get to here in is set
+                            # bigger than the total amount of entries on a search
+                            elif function_match[0] == "COUNT":
+                                yield ["COUNT", function_match[-1]]
+                        return "búsqueda completa"
+                    else:
                         yield next(read)
                         for row in read:
                             if row and re.search(f"^.*{re.escape(search) if not escaped else search}.*$",
-                                                 "".join(row[1:]), re.IGNORECASE) is not None:
+                                                "".join(row[1:]), re.IGNORECASE) is not None:
                                 yield row
                 else:
                     for row in read:
                         if row:
                             yield row
 
-    def guardar_datos_csv(self, enforce_unique=None) -> str:
-        """método publico guardar_datos_csv
-        permite escribir una nueva entrada en un archivo csv y retornar la nueva entrada añadida
-
-        Argumentos:
-
-        - enforce unique puede ser None o una tuple con str, permite decidir si
-        el valor del o los atributos de la clase debe ser único con respecto a los presentes en el csv,
-        si es tuple debe ser de la siguiente forma ('nombre_atributo',) para un atributo y
-        ('nombre_atributo1', 'nombre_atributo2', 'nombre_atributo3') para multiples ideal si se guardan
-        atributos de solo una clase o un conjunto de clases con un padre y atributos en común, si su
-        valor es None no se chequea que el atributo deba ser único
-
-        Valor de retorno:
-
-        - un str de la nueva entrada creada y si se especifico enforce unique y se encontró
-        que la entrada a guardar ya estaba presente se retorna el str presente
-
-        Excepciones:
-
-        - ValueError si el valor del argumento no es el apropiado o si en modo single = True
-        se intenta guardar una entrada con más valores (atributos) que la cantidad de columnas
-        disponibles o con nombres de valores que no sean iguales a los ya presentes (nombre columnas)
-        """
-        if not self.can_save:
-            return (f"\nAdvertencia: Actualmente esta ocupando un objeto de tipo {type(self.object).__name__}"
-                    "el cual no posee un __dict__ por lo que es imposible guardar entradas con él")
-        # self.current_rows can't be less than zero so even if self.max_row_limit
-        # is negative (truthy) the firs condition still checks
-        if self.current_rows - 1 >= self.max_row_limit or not self.max_row_limit:
-            return ("\nAdvertencia: Su entrada no fue creada ya que para mantener la eficiencia de este programa "
-                    f"recomendamos\nlimitar el numero de entrada a {self.max_row_limit - 3_000} "
-                    f"favor de ir a\n{self.file_path}\nhacer una, copia reiniciar el programa y\n"
-                    "borrar todas las entradas para proseguir normalmente\nde aquí en adelante "
-                    "solo se aceptaran operaciones de lectura y borrado de entradas solamente")
-
-        if enforce_unique is not None and self.current_rows > 1:
-            if not isinstance(enforce_unique, tuple):
-                raise ValueError(
-                    f"el parámetro enforce_unique debe ser una tuple pero fue {type(enforce_unique).__name__}")
-            elif not enforce_unique:
-                raise ValueError(f"la tuple debe contener al menos un str")
-            elif not all([isinstance(item, str) for item in enforce_unique]):
-                raise ValueError(
-                    "la tuple solo debe contener str "
-                    f"su tuple contiene {', '.join([str(type(item).__name__) for item in enforce_unique])}")
-            # strip("_") para eliminar el _ que es puesto cuando
-            # se tiene atributos que usan algún tipo decorador como
-            # el property y setter
-            # asi puedo buscar en atributos no consecutivos para ver si son únicos
-            if not self.single and str(self.object.__class__) in self.current_classes:
-                vals_to_check: str = ".+".join([re.escape(f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}') for
-                                                key, val in self.object.__dict__.items() if
-                                                str(key).strip("_") in enforce_unique])
-                for entry in self.leer_datos_csv(search=vals_to_check, back_up=True, escaped=True):
-                    # esto por si el csv contiene elementos de distintas clases
-                    if entry[1] == str(self.object.__class__):
-                        return "presente"
-            elif self.single:
-                vals_to_check = " | ".join([f'"{str(key).strip("_")}" = {val}' for
-                                            key, val in self.object.__dict__.items() if
-                                            str(key).strip("_") in enforce_unique])
-                skip_first = self.leer_datos_csv(search=vals_to_check, back_up=True)
-                next(skip_first)
-                for _ in skip_first:
-                    return "presente"
-        if not self.current_rows:
-            for files in self.accepted_files:
-                with open(files, "a", newline="", encoding="utf-8") as csv_writer:
-                    write = csv.writer(csv_writer, delimiter=self.delimiter)
-                    if not self.single:
-                        write.writerow(self.header)
-                    else:
-                        if self.exclude is not None:
-                            if self.exclude[0] == "!":
-                                self.new_head = [self.header[0],
-                                                 *[str(key).strip("_").upper() for key in self.object.__dict__ if
-                                                   str(key).strip("_") in self.exclude]]
-                                write.writerow(self.new_head)
-                            else:
-                                self.new_head = [self.header[0],
-                                                 *[str(key).strip("_").upper() for key in self.object.__dict__ if
-                                                   str(key).strip("_") not in self.exclude]]
-                                write.writerow(self.new_head)
-                        else:
-                            self.new_head = [self.header[0],
-                                             *[str(key).strip("_").upper() for key in self.object.__dict__]]
-                            write.writerow(self.new_head)
-            self.current_rows += 1
-        if self.exclude is not None:
-            if self.exclude[0] == "!":
-                if not self.single:
-                    class_repr = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in
-                                            self.object.__dict__.items() if str(key).strip("_") in self.exclude])
-                else:
-                    class_repr = [(str(key).strip('_').upper(),
-                                   str(val)) for key, val in self.object.__dict__.items()
-                                  if str(key).strip("_") in self.exclude]
-                    if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
-                        raise ValueError("en modo single = True solo se permiten objetos "
-                                         "con el mismo número de atributos y nombres "
-                                         f"que el actual {', '.join(self.new_head)}")
-            else:
-                if not self.single:
-                    class_repr = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in
-                                            self.object.__dict__.items() if str(key).strip("_") not in self.exclude])
-                else:
-                    class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.object.__dict__.items()
-                                  if str(key).strip("_") not in self.exclude]
-                    if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
-                        raise ValueError("en modo single = True solo se permiten objetos "
-                                         "con el mismo número de atributos y nombres "
-                                         f"que el actual {', '.join(self.new_head)}")
-        else:
-            if not self.single:
-                class_repr = ", ".join([f'{str(key).strip("_")}: {re.sub(":", ";", str(val))}' for key, val in
-                                        self.object.__dict__.items()])
-            else:
-                class_repr = [(str(key).strip('_').upper(), str(val)) for key, val in self.object.__dict__.items()]
-                if tuple((val[0] for val in class_repr)) != tuple(self.new_head[1:]):
-                    raise ValueError("en modo single = True solo se permiten objetos "
-                                     "con el mismo número de atributos y nombres "
-                                     f"que el actual {', '.join(self.new_head)}")
-        for count, files in enumerate(self.accepted_files):
-            with open(files, "a", newline="", encoding="utf-8") as csv_writer:
-                write = csv.writer(csv_writer, delimiter=self.delimiter)
-                if not count:
-                    self.current_rows += 1
-                if not self.single:
-                    write.writerow([f"[{self.current_rows - 1}]", self.object.__class__, class_repr])
-                else:
-                    write.writerow([f"[{self.current_rows - 1}]", *[val[1] for val in class_repr]])
-        if not self.single:
-            if str(self.object.__class__) not in self.current_classes:
-                self.current_classes.append(str(self.object.__class__))
-            return (f"\n{f'{self.delimiter}'.join(self.header)}\n[{self.current_rows - 1}]"
-                    f"{self.delimiter}{self.object.__class__}{self.delimiter}{class_repr}")
-        else:
-            return (f"\n{f'{self.delimiter}'.join([*self.new_head])}\n[{self.current_rows - 1}]"
-                    f"{self.delimiter}{f'{self.delimiter}'.join([val[1] for val in class_repr])}")
-
-    # only a generator just in case there are way to many items to delete
-    def borrar_datos(self, delete_index="", rewrite=False) -> Generator[str, None, str]:
-        """método publico borrar_datos
+    def borrar_datos(self, delete_index="") -> Generator[str, None, str]:
+        """ método publico borrar_datos
         permite borrar las entradas seleccionadas del archivo csv
 
         Argumentos:
 
-        - delete_index str que especifica que entradas a borrar en modo single = True
+        - delete_index str que especifica que entradas a borrar
         los valores validos para borrar entradas son 'borrar todo', alguno de los
         patrones validos establecidos por el método estático return_pattern o una query
-        valida para buscar datos que sea de estructura DELETE ON <query búsqueda>. En modo
-        single = False también se puede introducir el nombre literal de una clase para
-        borrar todo los miembros de esa clase además de 'borrar todo' y patrones definidos
-        en return_pattern
-        - rewrite bool que determina si al introducir 'borrar todo' se vuelva a copiar
-        los contenidos del backup correspondiente al modo actual
+        valida para buscar datos que sea de estructura DELETE ON <query búsqueda>
 
         Valor de retorno:
 
@@ -727,29 +841,12 @@ class CsvClassSave:
         """
         if not isinstance(delete_index, str):
             raise ValueError(f"el argumento delete_index debe ser str pero fue {type(delete_index).__name__}")
-        if not isinstance(rewrite, bool):
-            raise ValueError(f"el argumento rewrite debe ser bool pero fue {type(rewrite).__name__}")
         if delete_index == "borrar todo":
-            if rewrite:
-                with open(self.file_path, "w", newline="", encoding="utf-8") as _:
-                    pass
-                with open(self.file_path, "w", newline="", encoding="utf-8") as write_filter:
-                    filter_ = csv.writer(write_filter, delimiter=self.delimiter)
-                    for entry in self.leer_datos_csv(back_up=True):
-                        filter_.writerow(entry)
-                yield "rewrite"
-                # return only produces a
-                # StopIterationError if you
-                # use next after there are no more items
-                # the value in the return is the message
-                # passed to the error
-                return "copiado desde el respaldo completado"
             if self.current_rows <= 1:
                 yield "nada"
                 return "no hay datos para borrar"
-            for files in self.accepted_files:
-                with open(files, "w", newline="", encoding="utf-8") as _:
-                    pass
+            with open(self.instance_file_path, "w", newline="", encoding="utf-8") as _:
+                pass
             self.current_rows = 0
             yield "todo"
             return "todos los items ya se borraron"
@@ -757,28 +854,15 @@ class CsvClassSave:
             if self.current_rows <= 1:
                 yield "nada"
                 return "no hay datos para borrar"
-            if not self.single and delete_index in self.current_classes:
-                yield f"{self.delimiter}".join(self.header if not self.single else [self.header[0], *self.new_head])
-                with open(self.file_path, "w", newline="", encoding="utf-8") as class_deleter:
-                    class_remover = csv.writer(class_deleter, delimiter=self.delimiter)
-                    count: int = 1
-                    row_getter: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
-                    class_remover.writerow(next(row_getter))
-                    for item in row_getter:
-                        if item[1] != delete_index:
-                            item[0] = f"[{count}]"
-                            class_remover.writerow(item)
-                            count += 1
-                        else:
-                            yield f"{self.delimiter}".join(val for val in item)
             # use regex to accept multiple entries to delete
-            elif isinstance(to_delete := self.return_pattern(delete_index), tuple):
+            if isinstance(to_delete := self.return_pattern(delete_index), tuple):
                 # to get rid of things like 00 or 03, 056
                 operation: str | None = to_delete[0]
                 vars_to_delete: list = [num for num in to_delete[-1] if self.current_rows >= num >= 0]
                 if not vars_to_delete:
                     raise ValueError("ninguno de los valores ingresados corresponde al indice de alguna entrada")
-                yield f"{self.delimiter}".join(self.header if not self.single else [self.header[0], *self.new_head])
+                # we are hoping that the user does not pass a not indexed file for this to work properly
+                yield f"{self.delimiter}".join([*self.new_head])
                 if operation == ":":
                     if len(vars_to_delete) == 1:
                         vars_to_delete.append(self.current_rows)
@@ -787,11 +871,12 @@ class CsvClassSave:
                     vars_to_delete = [f"[{num}]" for num in vars_to_delete]
 
                 # copying all the data except entries to delete from backup file to main file
-                with open(self.file_path, "w", newline="", encoding="utf-8") as write_filter:
+                # CHECK THE USE OF W+B MODE IS COMPATIBLE WITH THE USE OF CSV WRITEROW
+                with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="", suffix=".csv") as write_filter:
                     filter_ = csv.writer(write_filter, delimiter=self.delimiter)
                     count: int = 1
                     mark: str = vars_to_delete[-1]
-                    row_generator: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
+                    row_generator: Generator[list[str] | str, None, str] = self.leer_datos_csv()
                     # to not count header
                     filter_.writerow(next(row_generator))
                     for entry in row_generator:
@@ -813,8 +898,10 @@ class CsvClassSave:
                                 count += 1
                             else:
                                 yield f"{self.delimiter}".join(val for val in entry)
-            elif (regex_delete := re.search(r'^DELETE ON (.+?)$', delete_index)) is not None and self.single:
-                delete_on = self.leer_datos_csv(search=regex_delete.group(1), back_up=True, query_functions=False)
+                    self.__rewrite_data(write_filter)
+
+            elif (regex_delete := re.search(r'^DELETE ON (.+?)$', delete_index)) is not None:
+                delete_on = self.leer_datos_csv(search=regex_delete.group(1), query_functions=False)
                 # header is not required
                 next(delete_on)
                 to_delete: list = []
@@ -827,10 +914,10 @@ class CsvClassSave:
                     yield "no se encontraron entradas para eliminar"
                     return "sintaxis valida pero sin entradas seleccionadas para la operación"
 
-                with open(self.file_path, "w", newline="", encoding="utf-8") as delete_query:
+                with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="", suffix=".csv") as delete_query:
                     deleter = csv.writer(delete_query, delimiter=self.delimiter)
-                    reader: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
-                    yield f"{self.delimiter}".join([self.header[0], *self.new_head])
+                    reader: Generator[list[str] | str, None, str] = self.leer_datos_csv()
+                    yield f"{self.delimiter}".join([*self.new_head])
                     deleter.writerow(next(reader))
                     counter: int  = 1
                     for entry in reader:
@@ -840,28 +927,18 @@ class CsvClassSave:
                             counter += 1
                         else:
                             yield f"{self.delimiter}".join(val for val in entry)
+                    self.__rewrite_data(delete_query)
             else:
-                message = """"utilize uno de los siguientes formatos para borrar una entrada:\n
-                              [n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice\n
-                              "de lo que desee eliminar """
-                if not self.single:
-                    raise ValueError(message + "o introduciendo el nombre completo de una clase")
-                else:
-                    raise ValueError(message + " o escribiendo una consulta usando la palabra clave DELETE para selecciones más complejas")
+                raise ValueError("utilize uno de los siguientes formatos para borrar una entrada:\n"
+                                 "[n], [n:m], [n:], [n-m-p] (hasta 10) remplazando las letras por el indice\n"
+                                 "de lo que desee eliminar o escribiendo una consulta usando la palabra clave DELETE para selecciones más complejas")
             # deleting all data on backup (is not up to date)
             # synchronizing backup
             # should I use asyncio?
-            with open(str(self.backup_multi if not self.single else self.backup_single),
-                      "w", newline="", encoding="utf-8") as write_filter:
-                filter_ = csv.writer(write_filter, delimiter=self.delimiter)
-                for entry in self.leer_datos_csv():
-                    filter_.writerow(entry)
-            if not self.single:
-                self.current_classes.clear()
             self.current_rows = self.__len__()
 
     def actualizar_datos(self, update_query) -> Generator[dict | str, None, str]:
-        """método publico actualizar_datos
+        """ método publico actualizar_datos
 
         Argumentos:
 
@@ -870,33 +947,51 @@ class CsvClassSave:
 
         Valor de retorno:
 
-        - un generador que retorna ya sea errores de sintaxis, una advertencia o de una en
-        una las filas que fueron actualizadas
+        - un generador que retorna ya sea una str con mensaje de errores de sintaxis o que no se encontraron entradas para actualizar, o
+        un diccionario por cada fila actualizada con la siguiente estructura:
+        3 llaves result, errors y old. Result contiene una lista con los valores de cada fila, errors contiene un diccionario
+        con los nombres de las filas a actualizar y cada nombre tiene como valor una lista la cual esta vacía si no hubo errores
+        a la hora de actualizar el valor de la fila de esa columna y que contendrá un mensaje con el error si hubo problemas, 
+        finalmente la llave old contiene un diccionario igual al de errors en donde cada valor es una lista de los valores anteriores
+        que tenia la columna en esa fila si este fue actualizada (no hubo errores)
+
+        ejemplos:
+        
+        1- si no hubo errores al actualizar una fila se obtiene un valor como el siguiente:
+        {'result': ['[2]', 'Lucas Folch', 'Los Angeles', '30', 'Graphic Designer', '2024-08-29'], 
+        'errors': {'NAME': [], 'AGE': []}, 
+        'old': {'NAME': ['Jane Smith'], 'AGE': ['34']}}
+
+        2- si hubo valores que no pudieron ser actualizados:
+        {'result': ['[4]', 'Emily Davis', 'Houston', '-8.0', 'Marketing Specialist', '2024-08-27'], 
+        'errors': {'AGE': [], 'DATE': ['superado el número de días que se puede añadir o restar a una fecha (entre 1 y 1000) ya que su valor fue 10500 entrada [4] no actualizada']}, 
+        'old': {'AGE': ['8'], 'DATE': []}}
+
+        3- si ningún valor pudo ser actualizado:
+        {'result': ['[11]', 'ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas'], 
+        'errors': {'AGE': ['no se puede aplicar una función que no sea %ADD sobre un str y su elección fue %MUL entrada [11] no actualizada'], 'DATE': ['superado el número de días que se puede añadir o restar a una fecha (entre 1 y 1000) ya que su valor fue 10500 entrada [11] no actualizada']}, 
+        'old': {'AGE': [], 'DATE': []}}
+
 
         Excepciones:
 
-        - AttributeError si se intenta ocupar en modo single=False
         - ValueError si los tipos de los argumentos no son los apropiados
         """
-        if not self.single:
-            raise AttributeError("no es posible actualizar datos en el modo actual single = True ya que no posee dicha opción")
         if not self.current_rows:
             raise ValueError("no es posible actualizar si no hay valore disponibles")
-        if not self.can_save:
-            yield (f"\nAdvertencia: Actualmente esta ocupando un objeto de tipo {type(self.object).__name__}"
-                   "el cual no posee un __dict__ por lo que es imposible actualizar sus entradas")
-            return "acción denegada"
         if not isinstance(update_query, str):
             raise ValueError(
                 f"debe ingresar un str como instrucción para actualizar valores, pero se introdujo {type(update_query).__name__}")
         # this works but use .strip() on the values to update
+        # current re implementation only captures a group as needed
+        # that why this is as verbose as it gets
         pattern = (r'^UPDATE:~"([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?)(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?'
                    r'(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))?(?: "([^,\s><=\|&!:"+*-\.\'#/\?]+"=.+?))? ON (.+?)$')
         regex_update = re.search(pattern, update_query)
         if regex_update is not None:
             value_tokens = list(filter(None, regex_update.groups()))
             where_update = value_tokens.pop()
-            search_result: Generator[list[str] | str, None, str] = self.leer_datos_csv(search=where_update, back_up=True, query_functions=False)
+            search_result: Generator[list[str] | str, None, str] = self.leer_datos_csv(search=where_update, query_functions=False)
             head_update: list[str] = next(search_result)
             col_index: list = []
             row_index: list = []
@@ -945,9 +1040,9 @@ class CsvClassSave:
             # for the case that any value was not updated due to impossible update function
             # use due to incorrect expected types for arguments
             was_updated: int = 0
-            with open(self.file_path, "w", newline="", encoding="utf-8") as write_update:
+            with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="", suffix=".csv") as write_update:
                 updater = csv.writer(write_update, delimiter=self.delimiter)
-                reader: Generator[list[str] | str, None, str] = self.leer_datos_csv(back_up=True)
+                reader: Generator[list[str] | str, None, str] = self.leer_datos_csv()
                 updater.writerow(next(reader))
                 for count, entry in enumerate(reader, start=1):
                     if f"[{count}]" in row_index:
@@ -1097,61 +1192,21 @@ class CsvClassSave:
                             operations_status["result"] = [entry[0], "ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas"]
                         yield operations_status
                     updater.writerow(entry)
-            if was_updated:
-                with open(str(self.backup_single), "w", newline="", encoding="utf-8") as rewrite_update:
-                    rw_updater = csv.writer(rewrite_update, delimiter=self.delimiter)
-                    for entry in self.leer_datos_csv():
-                        rw_updater.writerow(entry)
+                if was_updated:
+                    self.__rewrite_data(write_update)
         else:
             yield "error de sintaxis"
 
-    # static method
-    @staticmethod
-    def return_pattern(str_pattern) -> tuple | None:
-        """ método estático publico return_pattern
-
-        Argumento:
-
-        - str_pattern el str en el cual se buscara el patron deseado
-        este método específicamente sirve para saber si el usuario introduce el patron
-        correcto para buscar o eliminar alguna entrada del csv, en nuestro caso el usuario
-        debe ingresar ya sea [numero], [numero:], [numero1:numero2] o [numero1-numero2-numero3]
-
-        Valor de retorno:
-
-        - una tuple donde el primer valor es el tipo de operación, ya sea
-        ':' (por rango), '-' (más de un valor especifico) o None (solo un valor especifico) y el
-        segundo valor es una lista con los valores a eliminar. El valor de retorno es None si
-        no se encontró el patron en el str pattern
-
-        Excepciones:
-
-        - ValueError si el argumento requerido no es del tipo solicitado
-        """
-        if not isinstance(str_pattern, str):
-            raise ValueError(
-                f"debe ingresar un str donde buscar un patron, pero se introdujo {type(str_pattern).__name__}")
-        regex_obj = re.search(r"^\[(?:\d+(:)\d*|(?:\d+(-)){0,9}\d+)\]$", str_pattern)
-        if regex_obj is not None:
-            separator: list = [sep for sep in regex_obj.groups() if sep is not None]
-            str_pattern = re.sub(r"[\[\]]", "", str_pattern)
-            if separator:
-                pattern_nums: list[int] = [int(val) for val in str_pattern.split(separator[0]) if val]
-                pattern_nums.sort()
-                return separator[0], pattern_nums
-            return None, [int(str_pattern), ]
-        return None
-
     def __query_parser(self, string_pattern) -> list:
         """ método privado __query_parser
-        permite aplicar operaciones lógicas (>=, <=, <, >, =, !=) a las búsquedas
+        permite aplicar operaciones lógicas (>=, <=, <, >, =, != [=, ]=, <>, <<, >>) a las búsquedas
         del usuario dando más posibilidades al momento de filtrar datos
 
         Argumento:
 
         - string_pattern str introducida por el usuario la cual sera ocupada
         para hacer las comparaciones requeridas a la hora de buscar datos el formato
-        general debe ser '"nombre_columna" operador_lógico valor'
+        general debe ser '"<nombre_columna>" <operador_lógico> <valor>'
 
         Valor de retorno:
 
@@ -1160,18 +1215,15 @@ class CsvClassSave:
 
         Excepciones:
 
-        - AttributeError si se intenta ocupar este método en el modo equivocado
         - ValueError si el tipo del argumento requerido no es el indicado
         """
-        if not self.single:
-            raise AttributeError("opción de filtrado por selector lógico no disponible en modo single = False")
         if not isinstance(string_pattern, str):
             raise ValueError(
                 f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")       
         query_regex: str = (r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?\]]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?\[\]]+)" '
-                            r'(>=|>|<=|<|=|!=|\[=|\]=) (.+?)')
+                            r'(>=|>|<=|<|=|!=|\[=|\]=|<>|<<|>>) (.+?)')
         query_regex += r"(?: (\||&) "
-        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=) (.+?))?'
+        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=|<>|<<|>>) (.+?))?'
                                             for _ in range(0, 3)])
         query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?\[\]]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
@@ -1183,7 +1235,7 @@ class CsvClassSave:
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
-                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]="):
+                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]=", "<>", "<<", ">>"):
                     exclude_group.pop()
                     break
                 else:
@@ -1237,104 +1289,36 @@ class CsvClassSave:
                 sub_queries.append(function_group[0])
             return sub_queries
         return []
-
-    def export(self, destination, class_name) -> bool:
-        """ método publico export
-        permite crear csv individuales a partir de datos almacenados
-        en el modo multiple
+    
+    def __rewrite_data(self, file_helper: TextIO) -> None:
+        """ método privado rewrite_data permite reescribir los datos al
+        archivo correspondiente desde un archivo temporal
 
         Argumentos:
 
-        - destination: una ruta valida a la cual serán escritos los datos exportados
-        - class_name: los elementos seleccionados para exportar (debe ser el nombre literal
-        que contiene los elementos bajo la columna CLASE)
+        - file_helper un objeto TextIO el cual permite leer o escribir datos a un archivo en forma de texto
 
         Valor de retorno:
 
-        - True si se escribieron todos los datos correspondientes False si nada se escribió
-
-        Excepciones
-
-        - AttributeError si se accede a este método en el modo equivocado
-        - ValueError si el valor de los argumentos no es valido
-        - DataExportError si no calza la cantidad de valores del objeto a exportar
-        con la cantidad de columnas disponibles o no se pudo exportar correctamente
-        algún valor o crear correctamente los nombres de columnas
+        - None
         """
-        if self.single:
-            raise AttributeError("operación no disponible en modo single = True")
-        # at lest there must be a header and 1 entry
-        # to prevent StopIteration when using next
-        # just in case since the code below (class_name not in self.current_classes)
-        # could catch the error went only you have the header (self.current_rows == 1) in a file 
-        if self.current_rows < 2:
-            return False
-        if isinstance(destination, str):
-            valid_path = Path(destination)
-            if not valid_path.is_file():
-                raise ValueError(f"el archivo de destino debe ser una ruta valida pero fue {valid_path}")
-            elif valid_path.suffix != ".csv":
-                raise ValueError(f"el archivo de destino debe ser de extension .csv pero fue {valid_path.suffix}")
-        else:
-            raise ValueError(
-                f"el tipo para el argumento destination debe ser str pero fue {type(destination).__name__}")
-        if not isinstance(class_name, str):
-            raise ValueError(f"el tipo para el argumento class_name debe ser str pero fue {type(class_name).__name__}")
-        if class_name not in self.current_classes:
-            return False
-        lines_to_export: Generator[list[str], None, str] = self.leer_datos_csv(search=class_name, back_up=True)
-        # current headers
-        next(lines_to_export)
-        # take header from attribute
-        headers: list = next(lines_to_export)
-        head_names: list = re.findall(r"([^:,\s]+:)", headers[-1])
-        if head_names:
-            head_names = ["INDICE", ] + [str(item).strip(":").upper() for item in head_names]
-        else:
-            # for whatever reason head names couldn't be resolved
-            raise DataExportError(
-                f"no fue posible enviar los datos debido a un error de formato en el encabezado  en: {headers}")
-        values: list = re.findall(r"([^:]+(?:,|$))", headers[-1])
-        if values:
-            values = ["[1]", ] + [str(val).strip(" ,") for val in values]
-        else:
-            raise DataExportError(
-                f"no fue posible enviar los datos debido a un error de formato en los atributos en: {values}")
-        if len(values) != len(head_names):
-            raise DataExportError(
-                f"la cantidad de atributos no corresponde a la cantidad de encabezados en {values} para {head_names}")
-        with open(destination, "w", newline="", encoding="utf-8") as exporter:
-            data_export = csv.writer(exporter, delimiter=self.delimiter)
-            data_export.writerow(head_names)
-            data_export.writerow(values)
-            count = 2
-            for remain_lines in lines_to_export:
-                next_values: list = re.findall(r"([^:]+(?:,|$))", remain_lines[-1])
-                if next_values:
-                    next_values = [f"[{count}]", ] + [str(attr).strip(" ,") for attr in next_values]
-                    count += 1
-                    if len(next_values) != len(head_names):
-                        raise DataExportError(
-                            "la cantidad de atributos no corresponde a la cantidad de "
-                            f"encabezados en {next_values} para {head_names}")
-                    else:
-                        data_export.writerow(next_values)
-                else:
-                    raise DataExportError(
-                        "no fue posible enviar los datos debido a un error "
-                        f"de formato en los atributos en: {next_values}")
-            return True
+        # set cursor back to the top of file
+        file_helper.seek(0)
+        with open(str(self.instance_file_path), "w", newline="", encoding="utf-8") as write_back:
+            back_data = csv.writer(write_back, delimiter=self.delimiter)
+            reader_filter = csv.reader(file_helper, delimiter=self.delimiter)
+            for entry in reader_filter:
+                back_data.writerow(entry)
 
-    # TODO IMPLEMENT LOGIC THAT ALLOWS TO ADD NEW COLUMNS UPON CREATION
     @classmethod
-    def index(cls, file_path, delimiter, id_present=True, extra_columns = None, exclude = None) -> type:
+    def index(cls, file_path, delimiter, id_present=True, new_name = None, extra_columns = None, exclude = None) -> Type:
         """ método de clase index
         permite agregar indices con el formato de este programa y
         crear un objeto para que pueda usarse de intermediario para
         agregar o actualizar las entradas del archivo, siempre
         asume que el archivo tendrán un encabezado de otra forma los
         resultados serán inesperados, una ves reescrito el archivo este
-        sera copiado al backup_single del programa, para crear
+        sera copiado al backup del programa, para crear
         el objeto que permite añadir y actualizar campos se obtienen los nombres
         de atributos desde el encabezado del archivo pero si este no es valido
         (tiene cualquier carácter que no pueda ser usado como nombre de variable o atributo 
@@ -1343,11 +1327,18 @@ class CsvClassSave:
         Argumentos:
 
         - file_path: ruta valida del archivo a leer para dar formato valido
+
         - delimiter: el delimitador del archivo csv actual
-        - id_present: bool el cual indica que si solo se debe reescribir los id o
+
+        - id_present: bool el cual indica si se debe reescribir los id o
         si hay que crearlos desde cero
-        - extra_columns: dict con las columnas a añadir al archivo y su valor por defecto
-        - exclude: list con las columnas a excluir del archivo
+
+        - new_name: str o None si es str es el nuevo nombre que se le dará al archivo
+        una vez creado en el backup, si es None se ocupa el nombre del archivo pasado en file_path
+
+        - extra_columns: dict con el nombre de las columnas a añadir al archivo y su valor por defecto o None
+
+        - exclude: list con el nombre de las columnas a excluir del archivo o None
 
         Valor de retorno:
 
@@ -1356,19 +1347,27 @@ class CsvClassSave:
 
         Excepciones:
 
-        - ValueError si algún tipo de los argumentos ingresados no fue el correcto o
+        - ValueError si algún tipo de los argumentos ingresados no fue el correcto,
         si el encabezado del archivo tiene nombres de columna que no son nombres de
-        atributos validos en python para crear el objeto
+        atributos validos en python para crear el objeto o si el nombre que se le da al archivo contiene
+        caracteres no validos
         """
+        if not isinstance(file_path, str):
+            raise ValueError(f"el valor a asignar para el argumento file_name debe ser str pero fue {type(file_path).__name__}")
         if not isinstance(id_present, bool):
             raise ValueError(
                 f"el tipo esperado para el argumento id_present es bool pero fue {type(id_present).__name__}")
+        if new_name is not None:
+            if not isinstance(new_name, str):
+                raise ValueError(f"el valor a asignar para el argumento new_name debe ser str pero fue {type(new_name).__name__}")
+
         new_cols = []
         default_vals = []
         excluded = []
         if extra_columns is not None:
             if isinstance(extra_columns, dict):
-                new_cols = [str(key).upper() for key in extra_columns.keys()]
+                # prevent empty headers
+                new_cols = [dict_key for key in extra_columns.keys() if (dict_key := str(key).upper()) != "INDICE" and dict_key]
                 default_vals = [str(value) if str(value) not in (" ", "") else "VOID" for value in extra_columns.values()]
             else:
                 raise ValueError("si quiere añadir nuevas columnas debe pasar un argumento de tipo dict en extra_columns donde las llaves"
@@ -1376,20 +1375,31 @@ class CsvClassSave:
                                  f"fila para esa columna pero su argumento fue de tipo {type(extra_columns).__name__}")
         if exclude is not None:
             if isinstance(exclude, list):
-                excluded.extend(set(str(val).upper() for val in exclude))
+                # exclude does not exclude the INDICE
+                excluded.extend(set(except_index for val in exclude if (except_index := str(val).upper()) != "INDICE"))
             else:
                 raise ValueError("para excluir columnas existentes debe pasar un objeto de tipo list al argumento exclude que "
                                  f"contenga el nombre de las columnas a pasar pero su argumento fue de tipo {type(exclude).__name__}")
         # FOR EMPTY CSV FILE
         # you can't get the len by this method since is not going to give back the len
         # of the current file but the one already present in the backup
-        # we use new_class mostly for file_path validation 
-        new_class = cls(file_path, None, True, delimiter, check_hash=False)
+        # we use new_class mostly for file_name validation
+        current_file = Path(file_path)
+        file_name = current_file.stem if new_name is None else new_name
+        if not current_file.is_file():
+            raise ValueError(f"el argumento file_name debe ser una ruta valida pero no lo fue {file_name}")
+        if current_file.suffix != ".csv":
+            raise ValueError(f"el argumento file_name debe ser un archivo de extension.csv pero fue {current_file.suffix}")
+        # new argument to rename file on creation
+        new_class = BaseCsvManager(file_name, None, delimiter)
+        # creating backup file if does not exist (can happen if you enter a file
+        # via this method before creating an instance of SingleCsvManager
         with open(file_path, "r", newline="", encoding="utf-8") as import_:
             new_import = csv.reader(import_, delimiter=new_class.delimiter)
             try:
                 file_header = next(new_import)
             except StopIteration:
+
                 raise ValueError("No es posible realizar la operación en un archivo sin contenidos")
             # IN BOTH CASES THE FIRST ITEM OF THE HEAD IS PASS APART FROM THE REST TO PREVENT
             # THE USER FROM EXCLUDING THE INDEX MANUALLY
@@ -1398,14 +1408,13 @@ class CsvClassSave:
                 # like this only we exclude from the existing header so we avoid the case where the same name col
                 # name is passed to the extra_columns and exclude arguments the intended behavior is to exclude
                 # what already in the header not the extra columns that you pass after
-                new_head: list[str] = [item.upper() for item in file_header[1:] if item.upper() not in excluded]
+                new_head: list[str] = [col_names for item in file_header[1:] if (col_names := item.upper()) not in excluded]
                 head_file: list[str] = ["INDICE",] + file_header[1:]
             else:
-                new_head: list[str] = [item.upper() for item in file_header if item.upper() not in excluded]
+                new_head: list[str] = [col_names for item in file_header if (col_names := item.upper()) not in excluded]
                 head_file: list[str] = ["INDICE",] + file_header
-             # TODO TEST WITH INDICE BUT EXCLUDING INDICE AND ID_PRESENT FALSE SHOULD RAISE NO ERROR
             excluded_values = [head_file.index(col) for col in head_file if col.upper() in excluded]
-            head_file = [head_file[0],] + new_head
+            head_file: list[str] = ["INDICE",] + new_head
             # you need to calculate the index before adding new cols to the head
             # if id_present == False the INDICE becomes a reserved col name and valueError is raised
             head_file.extend(new_cols)
@@ -1414,63 +1423,35 @@ class CsvClassSave:
             # to not exclude index
             if 0 in excluded_values:
                 excluded_values = [val for val in excluded_values if val != 0]
-            if any([not val.isidentifier() or iskeyword(val) for val in head_file]):
-                raise ValueError("el encabezado del archivo contiene caracteres inválidos para crear variables validas en python")
-            with open(new_class.backup_single, "w", newline="", encoding="utf-8") as write_backup:
+            valid_headers = [not val.isidentifier() or iskeyword(val) for val in head_file]
+            if any(valid_headers):
+                raise ValueError("el encabezado del archivo contiene caracteres inválidos "
+                                 f"para crear variables validas en python ({[head_file[id] for id in range(0,len(valid_headers)) if valid_headers[id]]})")
+            cls._create_folders(new_class.instance_file_path)
+            with open(new_class.instance_file_path, "w", newline="", encoding="utf-8") as write_backup:
                 new_back_up = csv.writer(write_backup, delimiter=new_class.delimiter)
                 new_back_up.writerow(head_file)
                 for count, line in enumerate(new_import, 1):
-                    if count > new_class.max_row_limit:
+                    if count > BaseCsvManager.max_row_limit:
                         break
                     if id_present:
                         line[0] = f"[{count}]"
                         line = [value for value in line if line.index(value) not in excluded_values]
                         new_back_up.writerow(line + default_vals)
                     else:
+                        # you might end with a mismatch between the len of the headers
+                        # and the entries per row if you use id_present = False
                         line = [f"[{count}]",] + line
                         new_back_up.writerow([value for value in line if line.index(value) not in excluded_values] + default_vals)
             return make_dataclass(cls_name="CsvObjectWriter", fields=[name.lower() for name in head_file[1:]])
 
     def __len__(self) -> int:
-        with open(str(self.backup_multi if not self.single else self.backup_single),
-                  "r", newline="", encoding="utf-8") as csv_reader:
+        with open(str(self.instance_file_path), "r", newline="", encoding="utf-8") as csv_reader:
             read = csv.reader(csv_reader, delimiter=self.delimiter)
             # clever method to get the len and avoid putting
             # all the contents of the file in memory
             # this 1 for _ in read is an iterator
-            count = 0
-            if not self.single and not self.current_classes:
-                for item in read:
-                    count += 1
-                    if item[1] not in self.current_classes:
-                        self.current_classes.append(item[1])
-                if count:
-                    self.current_classes = self.current_classes[1:]
-                return count
             return sum(1 for _ in read)
 
 
-class DataExportError(Exception):
-    """ clase DataExportError es una excepción creada
-    para representar errores a la hora de exportar archivos
-    en modo single = False relacionados en este contexto a errores
-    de formato o cantidad de atributos inapropiados para un mismo
-    conjunto de clases a exportar
-    """
 
-    def __init__(self, message) -> None:
-        self.message_error = message
-
-    @property
-    def message_error(self) -> str:
-        return self._message_error
-
-    @message_error.setter
-    def message_error(self, value) -> None:
-        if isinstance(value, str):
-            self._message_error = value
-        else:
-            raise ValueError(f"el contenido del error debe ser str pero fue {type(value).__name__}")
-
-    def __str__(self) -> str:
-        return self.message_error
