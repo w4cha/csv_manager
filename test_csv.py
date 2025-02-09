@@ -365,7 +365,7 @@ class TestCsvClassSave:
              '| "difficulty" > 6700 & "solving_time" != 4.047~ASC:start_vals'): [[6, 20, 5], 3, 4, head_5],
             ('[START#END#start_vals] "size" > 4 & "difficulty" >= 5000 '
              '| "difficulty" > 6700 & "solving_time" != 4.047~DESC:start_vals'): [[5, 20, 6], 3, 4, head_5],
-             '[START#END#SIZE] "START" ]= | | "END" ]= G~DESC:SIZE': [[5, 1, 4], 3, 4, head_6],
+             '[START#END#SIZE] "START" ]= | | "END" ]= G~DESC:SIZE': [[5, 1], 2, 4, head_6],
             }
         for exclude_query, values in special_query.items():
             collect_entries = []
@@ -445,20 +445,20 @@ class TestCsvClassSave:
                           # now unique automatically returns the total amount
                           # of rows (considering the repeated ones) at the end
                           # the last number in the list inside the list
-                          # is the total amount of entries for [[1, 5, 3], 3] 
-                          # in [1, 5, 3] 3 is the amount of entries (1 and 5 
+                          # is the total amount of entries for [[1, 5, 2], 3] 
+                          # in [1, 5, 2] 2 is the amount of entries (1 and 5 
                           # and the repeated value that is not yielded) 
                           # and 3 is the amount of returned values
-                          '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 3], 3],
+                          '"DATE" <= 2024-08-20~UNIQUE:age': [[1, 5, 2], 3],
                           # if the row that you are using a function on
                           # is not requested the function won't apply
                           '[date] "DATE" = 2024-08-24~UNIQUE:age': [[7, 11], 2],
-                          '[date] "DATE" = 2024-08-24~UNIQUE:DATE': [[7, 2], 2],
+                          '[date] "DATE" = 2024-08-24~UNIQUE:DATE': [[7, 1], 2],
                           '"DATE" < 2024-08-24~MAX:JOB': [["Web Developer"], 1],
                           '"DATE" < 2024-08-24~MIN:JOB': [["HR Coordinator"], 1],
                           '"DATE" < 2024-08-24~AVG:JOB': [[0], 1],
                           '"DATE" < 2024-08-24~SUM:JOB': [[0], 1],
-                          '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 5], 5],
+                          '"DATE" < 2024-08-24~UNIQUE:JOB': [[1, 5, 8, 10, 4], 5],
                           '"DATE" < 2024-08-22~ASC:JOB': [[8, 5, 1, 10], 4],
                           '"DATE" < 2024-08-22~DESC:JOB': [[10, 1, 5, 8], 4],
                           # it returns floats like MAX AVG and SUM
