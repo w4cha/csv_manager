@@ -587,7 +587,7 @@ class SingleCsvManager(BaseCsvManager):
                                             function_match += [operand, set(), [0, set()], col_index]
                                         elif operand == "ASC" or operand == "DESC":
                                             header_offset = sum((1 for item in except_col if item < col_index))
-                                            function_match += [operand, [], col_index - header_offset, col_index]
+                                            function_match += [operand, [], col_index - header_offset, set()]
                             else:
                                 list_of_match.pop()
                         for row in read:
@@ -686,24 +686,27 @@ class SingleCsvManager(BaseCsvManager):
                                             before_len = len(function_match[1])
                                             current_value = row[function_match[-1]]
                                             function_match[1].add(current_value)
-                                            # the total count of entries (with repeated values)
-                                            function_match[2][0] += 1
                                             # if the item was not present is unique
                                             # otherwise it was there already
                                             if before_len != len(function_match[1]):
                                                 function_match[0] = "UNIQUE"
+                                                # updating the count of unique values
+                                                function_match[2][0] += 1
                                             else:
                                                 # appending to the list of repeated values
                                                 function_match[2][-1].add(current_value)
                                                 function_match[0] = "PRESENT"
                                         elif function_match[0] in ("ASC", "DESC"):
-                                            if except_col:
-                                                function_match[1].append(
-                                                    [row[0]] + [row[item] for item in
-                                                                range(1, len(row)) if
-                                                                item not in except_col])
-                                            else:
-                                                function_match[1].append(row)
+                                            last_len = len(function_match[-1])
+                                            current_row = [row[0],] + [row[item] for item in
+                                                                      range(1, len(row)) if
+                                                                      item not in except_col] if except_col else row
+                                            function_match[-1].add(current_row[function_match[2]])
+                                            if last_len != len(function_match[-1]):
+                                                if except_col:
+                                                    function_match[1].append(current_row)
+                                                else:
+                                                    function_match[1].append(current_row)
                                         else:
                                             function_val = row[function_match[-1]]
                                             for is_type in (float, date.fromisoformat, str):
@@ -1452,6 +1455,3 @@ class SingleCsvManager(BaseCsvManager):
             # all the contents of the file in memory
             # this 1 for _ in read is an iterator
             return sum(1 for _ in read)
-
-
-
