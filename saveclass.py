@@ -1313,6 +1313,43 @@ class SingleCsvManager(BaseCsvManager):
             for entry in reader_filter:
                 back_data.writerow(entry)
 
+    # you can't pass an unpacked dict to
+    # a function with *args because when using args
+    # the arguments become only positional and not referable by
+    # names unlike normal function definition, so to stop ambiguities
+    # where is difficult to know whether something is a positional or a named
+    # argument you can't pass kwargs to a function that defines its arguments with *args
+    @staticmethod
+    def create_writer(*args) -> Type:
+        """ método estático create writer
+        permite crear una clase para escribir entradas en csv ya indexados pero
+        que no tienen una clase de python asociada a ellos su principal función es evitar tener
+        que ocupar el método de clase index si solo se quiere obtener un objeto con el cual se pueda
+        guardar entradas
+
+        Argumentos:
+
+        - args de cantidad variable los cuales se ocuparan para crear el nombre de los atributos de la
+        clase (encabezados del csv sin incluir columna INDICE si ya esta presente)
+
+        Valor de retorno:
+
+        - un objeto creado de tipo CsvObjectWriter el cual puede ser usado para
+        escribir o actualizar a un csv que no este asociado a una clase de python
+
+        Excepciones:
+
+        - ValueError si el encabezado del archivo tiene nombres de columna que no son nombres de
+        atributos validos en python para crear el objet
+        """
+        valid_headers = [not str(val).isidentifier() or iskeyword(str(val)) for val in args]
+        if any(valid_headers):
+            raise ValueError("el encabezado del archivo contiene caracteres inválidos "
+                            f"para crear variables validas en python ({[args[id] for id in range(0,len(valid_headers)) if valid_headers[id]]})")
+        
+        return make_dataclass(cls_name="CsvObjectWriter", fields=[str(name).lower() for name in args])
+        
+
     @classmethod
     def index(cls, file_path, delimiter, id_present=True, new_name = None, extra_columns = None, exclude = None) -> Type:
         """ método de clase index
@@ -1426,10 +1463,6 @@ class SingleCsvManager(BaseCsvManager):
             # to not exclude index
             if 0 in excluded_values:
                 excluded_values = [val for val in excluded_values if val != 0]
-            valid_headers = [not val.isidentifier() or iskeyword(val) for val in head_file]
-            if any(valid_headers):
-                raise ValueError("el encabezado del archivo contiene caracteres inválidos "
-                                 f"para crear variables validas en python ({[head_file[id] for id in range(0,len(valid_headers)) if valid_headers[id]]})")
             cls._create_folders(new_class.instance_file_path)
             with open(new_class.instance_file_path, "w", newline="", encoding="utf-8") as write_backup:
                 new_back_up = csv.writer(write_backup, delimiter=new_class.delimiter)
@@ -1446,7 +1479,7 @@ class SingleCsvManager(BaseCsvManager):
                         # and the entries per row if you use id_present = False
                         line = [f"[{count}]",] + line
                         new_back_up.writerow([value for value in line if line.index(value) not in excluded_values] + default_vals)
-            return make_dataclass(cls_name="CsvObjectWriter", fields=[name.lower() for name in head_file[1:]])
+            return cls.create_writer(*head_file[1:])
 
     def __len__(self) -> int:
         with open(str(self.instance_file_path), "r", newline="", encoding="utf-8") as csv_reader:
