@@ -664,8 +664,13 @@ class TestCsvClassSave:
         rows = update_test_two.leer_datos_csv('"JOB" =  ')
         next(rows)
         assert next(rows)[0] == "[2]", "fallo en actualizar y buscar 2"
-        assert next(rows)[0] == "[11]", "fallo en actualizar y buscar 11"  
+        assert next(rows)[0] == "[11]", "fallo en actualizar y buscar 11"
 
+    def test_create_writer(self):
+        """ comprueba el funcionamiento del método estático create_writer"""
+        for arguments in  (["invalid name", "valid_name"], ["yield", "no_keyword_name"], ["class", "456"]):
+            with pytest.raises(ValueError, match="el encabezado del archivo contiene caracteres inválidos"):
+                SingleCsvManager.create_writer(*arguments)
 
     def test_index_write(self):
         """ comprueba que se cree una clase nueva cuando se pasa un csv que no depende de
