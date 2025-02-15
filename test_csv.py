@@ -513,6 +513,12 @@ class TestCsvClassSave:
                          '"age" <> hola': [[], 0],
                          '"city" <> 7': [[3, 4, 5], 3],
                          '"city" <> 6': [[9, 11], 2],
+                         '"city" >< 7': [[1, 2, 6, 7, 8, 9, 10, 11, 12], 9],
+                         # new string matching operators [] is in and ][ not in
+                         '"age" [] r': [[], 0],
+                         '"age" [] 4': [[2, 3, 7], 3],
+                         '"age" ][ y': [list(range(1,13)), 12],
+                         '"age" ][ 28': [[2, 3, 4, 5, 6, 7, 9, 10, 11, 12], 10],
                          }
         for multi_type_col_query, str_val in str_date_test.items():
             get_entries = []

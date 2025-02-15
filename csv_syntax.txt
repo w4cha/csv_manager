@@ -30,16 +30,19 @@ the current logical operators that are supported are:
 
 I- >, <, >=, <=: 
 To return the values that are grater (>), less (<), grater or equal (>=) or less than equal (<=) than the value to filter by,
-it alwasy tries to compare the values as numbers first then dates and finally strings (strings are compared using the unicode
+it always tries to compare the values as numbers first then dates and finally strings (strings are compared using the unicode
 numeric values of each character)
 II- =, !=:
 To return the values that are equal (=) or different (!=) than the value to filter by, the values are always compared as strings
 III- [=, ]=:
 To return the values that start with ([=) or end with (]=) the same characters that the value to filter by does, the values are
 always compared as strings
-IV- <>, <<, >>:
-To return the values that are of equal (<>) shorter (<<) or larger (>>) amount of characters than the value to filter by, the values
+IV- <>, <<, >>, ><:
+To return the values that are of equal (<>) shorter (<<) larger (>>) or different (><) amount of characters than the value to filter by, the values
 are always compared as string
+V- [], ][:
+To return the values that have ([]) or don't have (][) inside them the value to filter by, the values are always compared as strings
+
 
 to chain multiple conditions for a same column or for multiple ones you can use either the | or & logical 
 operators. Chained conditions are evaluated from left to right as they come for the following example 
