@@ -591,186 +591,30 @@ class SingleCsvManager(BaseCsvManager):
                             else:
                                 list_of_match.pop()
                         for row in read:
-                            bool_values: list = []
-                            # add function to get the last or first letter and write test
-                            # [= is the str star with operator and ]= is the str end with operator
-                            # for a = "hola" a[5] gives index error but a[5:] or a[5:10] gives ""
-                            operation_hash_table: dict[str, Callable] = {
-                            ">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
-                            "<": lambda x, y: x < y, ">": lambda x, y: x > y,
-                            "=": lambda x, y: x == y, "!=": lambda x, y: x != y,
-                            "[=": lambda x, y: str(y).lower() in str(x)[0:len(str(y))].lower(), 
-                            "]=": lambda x, y: str(y).lower() in str(x)[-len(str(y)):].lower(),
-                            "<>": lambda x, y: len(x) == y, ">>": lambda x, y: len(x) > y,
-                            "<<": lambda x, y: len(x) < y,
-                            }
-                            for element in list_of_match:
-                                if isinstance(element, list):
-                                    try:
-                                        head_index = self.new_head.index(element[0])
-                                    except IndexError:
-                                        # error if col that logical operator is applied to 
-                                        # is not a valid col name (does not exist)
-                                        yield "error de sintaxis"
-                                        return "sintaxis no valida búsqueda terminada"
-                                    # so you can search from index to
-                                    if head_index > 0:
-                                        val = row[head_index]
-                                    else:
-                                        # for suing [= ]= with index you don't have to consider []
-                                        val = re.sub(r"[\[\]]", "", row[head_index])
-                                    # should always be present on dict no need for get
-                                    parse_function: Callable = operation_hash_table[element[1]] 
-                                    if element[1] in ("]=", "[=",):
-                                        # this operator only accept values as str no matter if both can
-                                        # be numbers of dates otherwise when parsing to float the comparison
-                                        # may be False when is True
-                                        # since both are string for this case
-                                        # no error should be expected to be raised
-                                        bool_values.append(parse_function(val, element[-1]))
-                                    elif element[1] in ("<>", "<<", ">>",):
-                                        try:
-                                            bool_values.append(parse_function(str(val), int(element[-1])))
-                                        except ValueError:
-                                            bool_values.append(False)
-                                    else:
-                                        try:
-                                            row_val, expected_val = float(val), float(element[-1])
-                                        except ValueError:
-                                            pass
-                                        else:
-                                            bool_values.append(parse_function(row_val, expected_val))
-                                            continue
-                                        try:
-                                            # the only standard I will support
-                                            row_time = date.fromisoformat(val) 
-                                            expected_time = date.fromisoformat(element[-1])
-                                        except ValueError:
-                                            pass
-                                        else:
-                                            bool_values.append(parse_function(row_time, expected_time))
-                                            continue
-                                        try:
-                                            bool_values.append(parse_function(val, element[-1]))
-                                        except TypeError:
-                                            bool_values.append(False)
-                                else:
-                                    bool_values.append(element)
-                            if not bool_values:
+                            bool_values: list | str = self.__parsed_query_operation_resolver(row, list_of_match)
+                            if isinstance(bool_values, str):
+                                yield bool_values
+                                return "sintaxis no valida búsqueda terminada"
+                            elif not bool_values:
                                 yield "error de sintaxis"
                                 return "sintaxis no valida búsqueda terminada"
                             else:
-                                current_value = bool_values[0]
+                                current_value = bool_values.pop(0)
                                 if len(bool_values) != 1:
-                                    operation = "?"
-                                    for item in bool_values:
-                                        if item == "|":
-                                            operation = "|"
-                                        elif item == "&":
-                                            operation = "&"
+                                    for current in range(0, len(bool_values), 2):
+                                        if bool_values[current] == "|":
+                                            current_value = current_value or bool_values[current + 1]
                                         else:
-                                            if operation == "|":
-                                                current_value = current_value or item
-                                            elif operation == "&":
-                                                current_value = current_value and item
+                                            current_value = current_value and bool_values[current + 1]
                                 if current_value:
                                     if function_match:
-                                        if function_match[0] == "LIMIT":
-                                            function_match[-1] -= 1
-                                            if function_match[-1] == 0:
-                                                return ("se alcanzo el limite de entradas "
-                                                        f"requeridas LIMIT:{function_match[-1]}")
-                                        elif function_match[0] == "COUNT":
-                                            function_match[-1] += 1
-                                        elif function_match[0] in ("UNIQUE", "PRESENT"):
-                                            before_len = len(function_match[1])
-                                            current_value = row[function_match[-1]]
-                                            function_match[1].add(current_value)
-                                            # if the item was not present is unique
-                                            # otherwise it was there already
-                                            if before_len != len(function_match[1]):
-                                                function_match[0] = "UNIQUE"
-                                                # updating the count of unique values
-                                                function_match[2][0] += 1
-                                            else:
-                                                # appending to the list of repeated values
-                                                function_match[2][-1].add(current_value)
-                                                function_match[0] = "PRESENT"
-                                        elif function_match[0] in ("ASC", "DESC"):
-                                            last_len = len(function_match[-1])
-                                            current_row = [row[0],] + [row[item] for item in
-                                                                      range(1, len(row)) if
-                                                                      item not in except_col] if except_col else row
-                                            function_match[-1].add(current_row[function_match[2]])
-                                            if last_len != len(function_match[-1]):
-                                                if except_col:
-                                                    function_match[1].append(current_row)
-                                                else:
-                                                    function_match[1].append(current_row)
-                                        else:
-                                            function_val = row[function_match[-1]]
-                                            for is_type in (float, date.fromisoformat, str):
-                                                try:
-                                                    val_type = is_type(function_val)
-                                                except ValueError:
-                                                    pass
-                                                else:
-                                                    if (function_match[0] == "AVG" and not 
-                                                            isnan(function_match[1])):
-                                                        try:
-                                                            function_match[1] += val_type
-                                                            function_match[2] += 1
-                                                        except TypeError:
-                                                            function_match[1] = float("nan")
-                                                            function_match[2] = 0
-                                                    elif function_match[0] == "MAX":
-                                                        if (function_match[1][0] == float("-inf") 
-                                                                and isinstance(val_type, date)):
-                                                            function_match[1][0] = val_type
-                                                        else:
-                                                            if function_match[1][0] != "STR":
-                                                                try:
-                                                                    if val_type > function_match[1][0]:
-                                                                        function_match[1][0] = val_type
-                                                                except TypeError:
-                                                                    function_match[1][0] = "STR"
-                                                                if function_match[1][1] is not None:
-                                                                    if function_val > function_match[1][1]:
-                                                                        function_match[1][1] = function_val
-                                                                else:
-                                                                    function_match[1][1] = function_val
-                                                            else:
-                                                                if function_val > function_match[1][1]:
-                                                                    function_match[1][1] = function_val
-                                                    elif function_match[0] == "MIN":
-                                                        if (function_match[1][0] == float("inf") 
-                                                                and isinstance(val_type, date)):
-                                                            function_match[1][0] = val_type
-                                                        else:
-                                                            if function_match[1][0] != "STR":
-                                                                try:
-                                                                    if val_type < function_match[1][0]:
-                                                                        function_match[1][0] = val_type
-                                                                except TypeError:
-                                                                    function_match[1][0] = "STR"
-                                                                if function_match[1][1] is not None:
-                                                                    if function_val < function_match[1][1]:
-                                                                        function_match[1][1] = function_val
-                                                                else:
-                                                                    function_match[1][1] = function_val
-                                                            else:
-                                                                if function_val < function_match[1][1]:
-                                                                    function_match[1][1] = function_val
-                                                    elif (function_match[0] == "SUM" and not 
-                                                            isnan(function_match[1])): 
-                                                        try:
-                                                            function_match[1] += val_type
-                                                        except TypeError:
-                                                            function_match[1] = float("nan")
-                                                    break
+                                        new_function_state: str = self.__query_function_state_updater(row, except_col, function_match)
+                                        if new_function_state == "REACHED-LIMIT":
+                                            return ("se alcanzo el limite de entradas "
+                                                    f"requeridas LIMIT:{function_match[-1]}")
                                         # this is only because this two functions should 
                                         # be able to yield rows at this point
-                                        if function_match[0] not in ("LIMIT", "UNIQUE"):
+                                        if new_function_state not in ("LIMIT", "UNIQUE"):
                                             continue
                                     if except_col:
                                         yield [row[0]] + [row[item] for item in range(1, len(row)) if
@@ -996,6 +840,8 @@ class SingleCsvManager(BaseCsvManager):
             where_update = value_tokens.pop()
             search_result: Generator[list[str] | str, None, str] = self.leer_datos_csv(search=where_update, query_functions=False)
             head_update: list[str] = next(search_result)
+            # stores the column index to be updated and also the value or updating 
+            # function the value of that col index is going to be updated to
             col_index: list = []
             row_index: list = []
             update_functions_with_args: str = r'^%(?:(REPLACE|RANDOM-INT):~(.+?)#(.+))|%(?:(ADD|SUB|MUL|DIV|NUM-FORMAT):~(.+))$'
@@ -1027,19 +873,7 @@ class SingleCsvManager(BaseCsvManager):
                 row_index.append(item[0])
             if not row_index:
                 yield "no se encontraron entradas para actualizar"
-                return "sintaxis valida pero sin entradas seleccionadas para la operación"
-            # READ FROM BACKUP AND WRITE TO ORIGINAL
-            # THEN DELETE BACKUP AND WRITE ORIGINAL TO BACKUP
-            update_functions: dict[str, Callable] = {
-                "%UPPER": lambda x: str(x).upper(), "%LOWER": lambda x: str(x).lower(), 
-                "%TITLE": lambda x: str(x).title(), "%CAPITALIZE": lambda x: str(x).capitalize(),
-                "%REPLACE": lambda x, old, new: str(x).replace(old, new),
-                "%ADD": lambda x, y: str(x + y), "%SUB": lambda x, y: str(x - y),
-                "%MUL": lambda x, y: str(x * y), "%DIV": lambda x, y: str(x) if not y else str(x/y),
-                "%RANDOM-INT": lambda x, y: str(randint(x, y)) if x < y else str(randint(y, x)),
-                "%CEIL": lambda x: str(ceil(x)), "%FLOOR": lambda x: str(floor(x)),
-                "%NUM-FORMAT": lambda x, y: f"{x:.{y}f}",}
-            
+                return "sintaxis valida pero sin entradas seleccionadas para la operación"   
             # for the case that any value was not updated due to impossible update function
             # use due to incorrect expected types for arguments
             was_updated: int = 0
@@ -1054,146 +888,19 @@ class SingleCsvManager(BaseCsvManager):
                         # one col has multiple errors, by convention col names always in uppercase
                         # IF error is present you delete the last old if no old is found then that row do not suffered
                         # any changes
-                        operations_status: dict[str, list | dict[str, list]] = {"result": [], "errors": {}, "old": {}}
-                        for position, new_val in col_index:
-                            # start appending the old value and remove it if an error is appended
-                            if operations_status["old"].get(self.new_head[position], None) is None:
-                                operations_status["old"][self.new_head[position]] = [entry[position],]
-                            else:
-                                operations_status["old"][self.new_head[position]].append(entry[position])
-                            if operations_status["errors"].get(self.new_head[position], None) is None:
-                                operations_status["errors"][self.new_head[position]] = []
-                            if new_val in ("%UPPER", "%LOWER", "%TITLE", "%CAPITALIZE"):
-                                entry[position] = update_functions[new_val](entry[position])
-                                was_updated += 1
-                            # NAN AND INF DO NOT PASS THIS TRY THEY RAISE VALUE ERROR
-                            elif new_val in ("%CEIL", "%FLOOR"):
-                                try:
-                                    entry[position] = update_functions[new_val](float(entry[position]))
-                                except ValueError:
-                                    operations_status["old"][self.new_head[position]].pop()
-                                    operations_status["errors"][self.new_head[position]].append(f"solo es posible aplicar la función {new_val} a números y su valor fue {entry[position]}")
-                                else:
-                                    was_updated += 1
-                            elif isinstance(new_val, list):
-                                if new_val[0] in ("%REPLACE",):
-                                    entry[position] = update_functions[new_val[0]](entry[position], *new_val[1:])
-                                    was_updated += 1
-                                elif new_val[0] == "%RANDOM-INT":
-                                    try:
-                                        limit_1 = int(new_val[1])
-                                        limit_2 = int(new_val[-1])
-                                    except ValueError:
-                                        operations_status["old"][self.new_head[position]].pop()
-                                        operations_status["errors"][self.new_head[position]].append(("para usar la función %RANDOM-INT debe pasar dos números enteros como limites inferior "
-                                                                                                    f"y superior pero introdujo {new_val[1]} y {new_val[-1]} entrada [{count}] no actualizada"))
-                                    else:
-                                        entry[position] = update_functions["%RANDOM-INT"](limit_1, limit_2)
-                                        was_updated += 1
-                                elif new_val[0] == "%NUM-FORMAT":
-                                    parse_values: list = []
-                                    for count, callable_item, argument_item in ((0, float, entry[position]), (1, int, new_val[-1])):
-                                        descriptor: str = "ocupar una columna que contenga valores decimales o enteros" if not count else "pasar como argumento un número entero"
-                                        try:
-                                            parsed_val: float | int = callable_item(argument_item)
-                                        except ValueError:
-                                            operations_status["old"][self.new_head[position]].pop()
-                                            operations_status["errors"][self.new_head[position]].append((f"para usar la función %NUM-FORMAT debe {descriptor} "
-                                                                                                         f"pero el valor fue de tipo {type(argument_item).__name__}"))
-                                        else: 
-                                            parse_values.append(parsed_val)
-                                    if len(parse_values) == 2:
-                                        # consider for future release a config file to 
-                                        # allow easier manipulation of global variables like 25
-                                        # (formatting limit for float)
-                                        # PASSING 0 TO %INT-FORMAT IS LIKE USING %CEIL range is 1 to 25
-                                        # since we already have a floor function
-                                        if not (25 >= parse_values[-1] > 0):
-                                            operations_status["old"][self.new_head[position]].pop()
-                                            operations_status["errors"][self.new_head[position]].append(("el segundo argumento para la función %NUM-FORMAT "
-                                                                                                        f"debe ser un número entre 1 y 25 pero fue {parse_values[-1]}"))
-                                        else:
-                                            entry[position] = update_functions[new_val[0]](*parse_values)
-                                            was_updated += 1
-                                else:
-                                    # CHECK IF IS FLOAT OR STR TO DO THE REQUIRED OPERATIONS
-                                    # TEST ON REPLACE IN FLOAT AND THEN IN THAT FLOAT TEST ONE OF THE OTHER FUNCTIONS
-                                    # CHECK IF NO ENTRIES WHERE UPDATED DUE TO NOT MEETING THE CONDITIONS FOR THE
-                                    # FUNCTIONS
-                                    # you can do operations between dates but is better to do operations
-                                    # between dates and umbers since you can't sum dates but you can sum and
-                                    # subtract numbers from dates
-                                    # test for float when is nan and float if div is passed a 0
-                                    # test if it fails for a column but it does not for another
-
-                                    # this code is for allowing to do arithmetics with another value of the same row
-                                    value_for_col: str = new_val[-1]
-                                    if (use_another := re.search(r"^USE:~(.+)$", new_val[-1])) is not None:
-                                        # to not consider the index
-                                        if (other_col_val := use_another.group(1).upper()) in self.new_head[1:]:
-                                            value_for_col: str = entry[self.new_head.index(other_col_val)]
-                                        else:
-                                            operations_status["old"][self.new_head[position]].pop()
-                                            operations_status["errors"][self.new_head[position]].append(("el selector USE:~ solo se puede usar para pasar como argumento el valor de otra columna en la fila a la función "
-                                                                                                f"seleccionada por lo que el valor debe ser el nombre de una columna ({self.new_head[1:]}) pero fue {other_col_val}"))
-                                            continue
-                                    for possibly_type in ([float, float], [date.fromisoformat, int], [str, str]):
-                                        try:
-                                            cast_current_value: float | date | str = possibly_type[0](entry[position])
-                                            cast_function_value: float | int | str = possibly_type[1](value_for_col)
-                                        except ValueError:
-                                            pass
-                                        else:
-                                            if isinstance(cast_current_value, float):
-                                                # nan and inf operations are defined internally for float
-                                                entry[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
-                                                was_updated += 1
-                                            elif isinstance(cast_current_value, date):
-                                                if new_val[0] in ("%ADD", "%SUB"):
-                                                    if 0 < cast_function_value <= 1_000:
-                                                        entry[position] = update_functions[new_val[0]](cast_current_value, timedelta(days=cast_function_value))
-                                                        was_updated += 1
-                                                    else:
-                                                        operations_status["old"][self.new_head[position]].pop()
-                                                        operations_status["errors"][self.new_head[position]].append(("superado el número de días que se puede añadir o restar a una fecha "
-                                                                                                                     f"(entre 1 y 1000) ya que su valor fue {cast_function_value} entrada [{count}] no actualizada"))
-                                                else:
-                                                    operations_status["old"][self.new_head[position]].pop()
-                                                    operations_status["errors"][self.new_head[position]].append(("solo es posible aplicar una función %ADD o %SUB sobre una fecha "
-                                                                                                                 f"y su elección fue {new_val[0]} entrada [{count}] no actualizada"))
-                                            elif isinstance(cast_current_value, str):
-                                                if new_val[0] == "%ADD":
-                                                    entry[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
-                                                    was_updated += 1
-                                                else:
-                                                    operations_status["old"][self.new_head[position]].pop()
-                                                    operations_status["errors"][self.new_head[position]].append(("no se puede aplicar una función que no sea %ADD sobre un str "
-                                                                                                                f"y su elección fue {new_val[0]} entrada [{count}] no actualizada"))
-                                            break
-                            # using regex is better for case insensitive col name reference handling
-                            elif (copy_value := re.search(r"^%COPY:~(.+)$", new_val)) is not None:
-                                if (target_copy := copy_value.group(1).upper()) in self.new_head[1:]:
-                                    entry[position] = entry[self.new_head.index(target_copy)]
-                                    was_updated += 1
-                                else:
-                                    operations_status["old"][self.new_head[position]].pop()
-                                    operations_status["errors"][self.new_head[position]].append(("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
-                                                                                                f"debe seleccionar el nombre de una columna, su valor fue {target_copy} pero las opciones son {self.new_head[1:]} "
-                                                                                                f"entrada [{count}] no actualizada"))
-                            else:
-                                entry[position] = new_val
-                                was_updated += 1
+                        
                         # fix this because if there is a str message then the entry is going to be
                         # pass to the user even if no changed was made (all cols yielded a str) or
                         # if only some cols where updated
                         # if all entries update have errors then we do not have old values since 
                         # they are still the same and in result we let know that no update was done
-
-                        if sum(len(old_column) for old_column in operations_status["old"].values()):
-                            operations_status["result"] = entry
+                        update_status: dict[str, list | dict[str, list]] = self.__parsed_update_query_operation_resolver(entry, col_index, count)
+                        if sum(len(old_column) for old_column in update_status["old"].values()):
+                            update_status["result"] = entry
+                            was_updated += 1
                         else:
-                            operations_status["result"] = [entry[0], "ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas"]
-                        yield operations_status
+                            update_status["result"] = [entry[0], "ningún valor de la fila fue actualizado, todas la operaciones fueron invalidas"]
+                        yield update_status
                     updater.writerow(entry)
                 if was_updated:
                     self.__rewrite_data(write_update)
@@ -1202,7 +909,7 @@ class SingleCsvManager(BaseCsvManager):
 
     def __query_parser(self, string_pattern) -> list:
         """ método privado __query_parser
-        permite aplicar operaciones lógicas (>=, <=, <, >, =, != [=, ]=, <>, <<, >>) a las búsquedas
+        permite aplicar operaciones lógicas (>=, <=, <, >, =, != [=, ]=, [], ][, <>, ><, <<, >>) a las búsquedas
         del usuario dando más posibilidades al momento de filtrar datos
 
         Argumento:
@@ -1224,9 +931,9 @@ class SingleCsvManager(BaseCsvManager):
             raise ValueError(
                 f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")       
         query_regex: str = (r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?\]]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?\[\]]+)" '
-                            r'(>=|>|<=|<|=|!=|\[=|\]=|<>|<<|>>) (.+?)')
+                            r'(>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>) (.+?)')
         query_regex += r"(?: (\||&) "
-        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=|<>|<<|>>) (.+?))?'
+        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>) (.+?))?'
                                             for _ in range(0, 3)])
         query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?\[\]]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
@@ -1238,7 +945,7 @@ class SingleCsvManager(BaseCsvManager):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
-                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]=", "<>", "<<", ">>"):
+                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]=", "[]", "][", "<>", "><", "<<", ">>"):
                     exclude_group.pop()
                     break
                 else:
@@ -1292,6 +999,351 @@ class SingleCsvManager(BaseCsvManager):
                 sub_queries.append(function_group[0])
             return sub_queries
         return []
+
+    def __parsed_query_operation_resolver(self, current_row: list, parsed_query: list) -> list | str:
+        """ método privado parsed_query_operation_resolver implementa el código
+        que permite tomar la parte de una query que aplica las comparaciones lógicas
+        y retornar una lista con el resultado de cada comparación en un query ya sea True o False
+
+        Argumentos:
+
+        - current_row una lista con los valores de la fila que esta siendo actualmente leída
+
+        - parsed_query una lista que contiene datos extraídos de la query como operación a realizar y
+        valor con el cual comparar
+
+        Valor de retorno:
+
+        - un str si se detecto un error de sintaxis en los valores entregados por parsed_query, de lo 
+        contrario una lista que contiene el resultado de las comparaciones lógicas pasadas en la query
+        """
+        bool_values: list = []
+        # add function to get the last or first letter and write test
+        # [= is the str star with operator and ]= is the str end with operator
+        # for a = "hola" a[5] gives index error but a[5:] or a[5:10] gives ""
+        operation_hash_table: dict[str, Callable] = {
+        ">=": lambda x, y: x >= y, "<=": lambda x, y: x <= y,
+        "<": lambda x, y: x < y, ">": lambda x, y: x > y,
+        "=": lambda x, y: x == y, "!=": lambda x, y: x != y,
+        "[=": lambda x, y: str(y).lower() in str(x)[0:len(str(y))].lower(), 
+        "]=": lambda x, y: str(y).lower() in str(x)[-len(str(y)):].lower(),
+        "[]": lambda x, y: str(y).lower() in str(x).lower(),
+        "][": lambda x, y: str(y).lower() not in str(x).lower(), 
+        "<>": lambda x, y: len(x) == y, "><": lambda x, y: len(x) != y,
+        ">>": lambda x, y: len(x) > y, "<<": lambda x, y: len(x) < y,
+        }
+        for element in parsed_query:
+            if isinstance(element, list):
+                try:
+                    head_index = self.new_head.index(element[0])
+                except IndexError:
+                    # error if col that logical operator is applied to 
+                    # is not a valid col name (does not exist)
+                    return "error de sintaxis"
+                # so you can search from index to
+                if head_index > 0:
+                    val = current_row[head_index]
+                else:
+                    # for suing [= ]= with index you don't have to consider []
+                    val = re.sub(r"[\[\]]", "", current_row[head_index])
+                # should always be present on dict no need for get
+                parse_function: Callable = operation_hash_table[element[1]] 
+                if element[1] in ("]=", "[=", "[]", "]["):
+                    # this operator only accept values as str no matter if both can
+                    # be numbers of dates otherwise when parsing to float the comparison
+                    # may be False when is True
+                    # since both are string for this case
+                    # no error should be expected to be raised
+                    bool_values.append(parse_function(val, element[-1]))
+                elif element[1] in ("<>", "><", "<<", ">>",):
+                    try:
+                        bool_values.append(parse_function(str(val), int(element[-1])))
+                    except ValueError:
+                        bool_values.append(False)
+                else:
+                    try:
+                        row_val, expected_val = float(val), float(element[-1])
+                    except ValueError:
+                        pass
+                    else:
+                        bool_values.append(parse_function(row_val, expected_val))
+                        continue
+                    try:
+                        # the only standard I will support
+                        row_time = date.fromisoformat(val) 
+                        expected_time = date.fromisoformat(element[-1])
+                    except ValueError:
+                        pass
+                    else:
+                        bool_values.append(parse_function(row_time, expected_time))
+                        continue
+                    try:
+                        bool_values.append(parse_function(val, element[-1]))
+                    except TypeError:
+                        bool_values.append(False)
+            else:
+                bool_values.append(element)
+        return bool_values
+
+    def __query_function_state_updater(self, current_row: list, query_headers: tuple, status_container: list) -> str:
+        """ método privado query_function_state_updater gestiona la actualización del estado actual
+        del objeto en este caso una lista encargado de almacenar el valor acumulado para la función pasada
+        en la query
+
+        Argumentos:
+
+        - current_row una lista que contiene los valores de la fila actual que se lee del archivo csv
+
+        - query_headers un tuple que contiene el formato actual del header especificado en la query
+
+        - status_container una lista que almacena distintas variables dependiendo de la función usada en el query
+
+        Valor de retorno:
+
+        - un str que retorna el identificador de la función usada actualmente o el estado actual de esa
+        función (LIMIT o REACHED-LIMIT, UNIQUE o PRESENT)
+        """
+        if status_container[0] == "LIMIT":
+            status_container[-1] -= 1
+            if status_container[-1] == 0:
+                return "REACHED-LIMIT"
+        elif status_container[0] == "COUNT":
+            status_container[-1] += 1
+        elif status_container[0] in ("UNIQUE", "PRESENT"):
+            before_len = len(status_container[1])
+            current_value = current_row[status_container[-1]]
+            status_container[1].add(current_value)
+            # if the item was not present is unique
+            # otherwise it was there already
+            if before_len != len(status_container[1]):
+                status_container[0] = "UNIQUE"
+                # updating the count of unique values
+                status_container[2][0] += 1
+            else:
+                # appending to the list of repeated values
+                status_container[2][-1].add(current_value)
+                status_container[0] = "PRESENT"
+        elif status_container[0] in ("ASC", "DESC"):
+            last_len = len(status_container[-1])
+            current_row = [current_row[0],] + [current_row[item] for item in
+                                        range(1, len(current_row)) if
+                                        item not in query_headers] if query_headers else current_row
+            status_container[-1].add(current_row[status_container[2]])
+            if last_len != len(status_container[-1]):
+                if query_headers:
+                    status_container[1].append(current_row)
+                else:
+                    status_container[1].append(current_row)
+        else:
+            function_val = current_row[status_container[-1]]
+            for is_type in (float, date.fromisoformat, str):
+                try:
+                    val_type = is_type(function_val)
+                except ValueError:
+                    pass
+                else:
+                    if (status_container[0] == "AVG" and not 
+                            isnan(status_container[1])):
+                        try:
+                            status_container[1] += val_type
+                            status_container[2] += 1
+                        except TypeError:
+                            status_container[1] = float("nan")
+                            status_container[2] = 0
+                    elif status_container[0] == "MAX":
+                        if (status_container[1][0] == float("-inf") 
+                                and isinstance(val_type, date)):
+                            status_container[1][0] = val_type
+                        else:
+                            if status_container[1][0] != "STR":
+                                try:
+                                    if val_type > status_container[1][0]:
+                                        status_container[1][0] = val_type
+                                except TypeError:
+                                    status_container[1][0] = "STR"
+                                if status_container[1][1] is not None:
+                                    if function_val > status_container[1][1]:
+                                        status_container[1][1] = function_val
+                                else:
+                                    status_container[1][1] = function_val
+                            else:
+                                if function_val > status_container[1][1]:
+                                    status_container[1][1] = function_val
+                    elif status_container[0] == "MIN":
+                        if (status_container[1][0] == float("inf") 
+                                and isinstance(val_type, date)):
+                            status_container[1][0] = val_type
+                        else:
+                            if status_container[1][0] != "STR":
+                                try:
+                                    if val_type < status_container[1][0]:
+                                        status_container[1][0] = val_type
+                                except TypeError:
+                                    status_container[1][0] = "STR"
+                                if status_container[1][1] is not None:
+                                    if function_val < status_container[1][1]:
+                                        status_container[1][1] = function_val
+                                else:
+                                    status_container[1][1] = function_val
+                            else:
+                                if function_val < status_container[1][1]:
+                                    status_container[1][1] = function_val
+                    elif (status_container[0] == "SUM" and not 
+                            isnan(status_container[1])): 
+                        try:
+                            status_container[1] += val_type
+                        except TypeError:
+                            status_container[1] = float("nan")
+                    break
+        return status_container[0]
+    
+    def __parsed_update_query_operation_resolver(self, update_row: list, update_value: list, current_row: int) -> dict[str, list | dict[str, list]]:
+        """ método privado parsed_query_operation_resolver implementa la lógica que actualiza los datos
+        en una fila cuando se usa una query de actualización de valores
+
+        Argumentos:
+
+        - update_row una lista con los valores de la fila que va a ser actualizada
+
+        - update_value una lista que contiene el valor con o sin funciones de actualización extraídos
+        desde la query
+        
+        - current_row un número, el valor del indice de la fila actual
+
+        Valor de retorno:
+
+        - un diccionario que contiene información sobre el estado de la fila después de ser actualizada,
+        que valores fueron cambiados (con el valor anterior) y que errores si hubo durante la actualización
+        """
+        update_functions: dict[str, Callable] = {
+                "%UPPER": lambda x: str(x).upper(), "%LOWER": lambda x: str(x).lower(), 
+                "%TITLE": lambda x: str(x).title(), "%CAPITALIZE": lambda x: str(x).capitalize(),
+                "%REPLACE": lambda x, old, new: str(x).replace(old, new),
+                "%ADD": lambda x, y: str(x + y), "%SUB": lambda x, y: str(x - y),
+                "%MUL": lambda x, y: str(x * y), "%DIV": lambda x, y: str(x) if not y else str(x/y),
+                "%RANDOM-INT": lambda x, y: str(randint(x, y)) if x < y else str(randint(y, x)),
+                "%CEIL": lambda x: str(ceil(x)), "%FLOOR": lambda x: str(floor(x)),
+                "%NUM-FORMAT": lambda x, y: f"{x:.{y}f}",}
+            
+        operations_status: dict[str, list | dict[str, list]] = {"result": [], "errors": {}, "old": {}}
+        for position, new_val in update_value:
+            # start appending the old value and remove it if an error is appended
+            if operations_status["old"].get(self.new_head[position], None) is None:
+                operations_status["old"][self.new_head[position]] = [update_row[position],]
+            else:
+                operations_status["old"][self.new_head[position]].append(update_row[position])
+            if operations_status["errors"].get(self.new_head[position], None) is None:
+                operations_status["errors"][self.new_head[position]] = []
+            if new_val in ("%UPPER", "%LOWER", "%TITLE", "%CAPITALIZE"):
+                update_row[position] = update_functions[new_val](update_row[position])
+            # NAN AND INF DO NOT PASS THIS TRY THEY RAISE VALUE ERROR
+            elif new_val in ("%CEIL", "%FLOOR"):
+                try:
+                    update_row[position] = update_functions[new_val](float(update_row[position]))
+                except ValueError:
+                    operations_status["old"][self.new_head[position]].pop()
+                    operations_status["errors"][self.new_head[position]].append(f"solo es posible aplicar la función {new_val} a números y su valor fue {update_row[position]}")
+            elif isinstance(new_val, list):
+                if new_val[0] in ("%REPLACE",):
+                    update_row[position] = update_functions[new_val[0]](update_row[position], *new_val[1:])
+                elif new_val[0] == "%RANDOM-INT":
+                    try:
+                        limit_1 = int(new_val[1])
+                        limit_2 = int(new_val[-1])
+                    except ValueError:
+                        operations_status["old"][self.new_head[position]].pop()
+                        operations_status["errors"][self.new_head[position]].append(("para usar la función %RANDOM-INT debe pasar dos números enteros como limites inferior "
+                                                                                    f"y superior pero introdujo {new_val[1]} y {new_val[-1]} entrada [{current_row}] no actualizada"))
+                    else:
+                        update_row[position] = update_functions["%RANDOM-INT"](limit_1, limit_2)
+                elif new_val[0] == "%NUM-FORMAT":
+                    parse_values: list = []
+                    for count, callable_item, argument_item in ((0, float, update_row[position]), (1, int, new_val[-1])):
+                        descriptor: str = "ocupar una columna que contenga valores decimales o enteros" if not count else "pasar como argumento un número entero"
+                        try:
+                            parsed_val: float | int = callable_item(argument_item)
+                        except ValueError:
+                            operations_status["old"][self.new_head[position]].pop()
+                            operations_status["errors"][self.new_head[position]].append((f"para usar la función %NUM-FORMAT debe {descriptor} "
+                                                                                            f"pero el valor fue de tipo {type(argument_item).__name__}"))
+                        else: 
+                            parse_values.append(parsed_val)
+                    if len(parse_values) == 2:
+                        # consider for future release a config file to 
+                        # allow easier manipulation of global variables like 25
+                        # (formatting limit for float)
+                        # PASSING 0 TO %INT-FORMAT IS LIKE USING %CEIL range is 1 to 25
+                        # since we already have a floor function
+                        if not (25 >= parse_values[-1] > 0):
+                            operations_status["old"][self.new_head[position]].pop()
+                            operations_status["errors"][self.new_head[position]].append(("el segundo argumento para la función %NUM-FORMAT "
+                                                                                        f"debe ser un número entre 1 y 25 pero fue {parse_values[-1]}"))
+                        else:
+                            update_row[position] = update_functions[new_val[0]](*parse_values)
+                else:
+                    # CHECK IF IS FLOAT OR STR TO DO THE REQUIRED OPERATIONS
+                    # TEST ON REPLACE IN FLOAT AND THEN IN THAT FLOAT TEST ONE OF THE OTHER FUNCTIONS
+                    # CHECK IF NO ENTRIES WHERE UPDATED DUE TO NOT MEETING THE CONDITIONS FOR THE
+                    # FUNCTIONS
+                    # you can do operations between dates but is better to do operations
+                    # between dates and umbers since you can't sum dates but you can sum and
+                    # subtract numbers from dates
+                    # test for float when is nan and float if div is passed a 0
+                    # test if it fails for a column but it does not for another
+
+                    # this code is for allowing to do arithmetics with another value of the same row
+                    value_for_col: str = new_val[-1]
+                    if (use_another := re.search(r"^USE:~(.+)$", new_val[-1])) is not None:
+                        # to not consider the index
+                        if (other_col_val := use_another.group(1).upper()) in self.new_head[1:]:
+                            value_for_col: str = update_row[self.new_head.index(other_col_val)]
+                        else:
+                            operations_status["old"][self.new_head[position]].pop()
+                            operations_status["errors"][self.new_head[position]].append(("el selector USE:~ solo se puede usar para pasar como argumento el valor de otra columna en la fila a la función "
+                                                                                f"seleccionada por lo que el valor debe ser el nombre de una columna ({self.new_head[1:]}) pero fue {other_col_val}"))
+                            continue
+                    for possibly_type in ([float, float], [date.fromisoformat, int], [str, str]):
+                        try:
+                            cast_current_value: float | date | str = possibly_type[0](update_row[position])
+                            cast_function_value: float | int | str = possibly_type[1](value_for_col)
+                        except ValueError:
+                            pass
+                        else:
+                            if isinstance(cast_current_value, float):
+                                # nan and inf operations are defined internally for float
+                                update_row[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
+                            elif isinstance(cast_current_value, date):
+                                if new_val[0] in ("%ADD", "%SUB"):
+                                    if 0 < cast_function_value <= 1_000:
+                                        update_row[position] = update_functions[new_val[0]](cast_current_value, timedelta(days=cast_function_value))
+                                    else:
+                                        operations_status["old"][self.new_head[position]].pop()
+                                        operations_status["errors"][self.new_head[position]].append(("superado el número de días que se puede añadir o restar a una fecha "
+                                                                                                        f"(entre 1 y 1000) ya que su valor fue {cast_function_value} entrada [{current_row}] no actualizada"))
+                                else:
+                                    operations_status["old"][self.new_head[position]].pop()
+                                    operations_status["errors"][self.new_head[position]].append(("solo es posible aplicar una función %ADD o %SUB sobre una fecha "
+                                                                                                    f"y su elección fue {new_val[0]} entrada [{current_row}] no actualizada"))
+                            elif isinstance(cast_current_value, str):
+                                if new_val[0] == "%ADD":
+                                    update_row[position] = update_functions[new_val[0]](cast_current_value, cast_function_value)
+                                else:
+                                    operations_status["old"][self.new_head[position]].pop()
+                                    operations_status["errors"][self.new_head[position]].append(("no se puede aplicar una función que no sea %ADD sobre un str "
+                                                                                                f"y su elección fue {new_val[0]} entrada [{current_row}] no actualizada"))
+                            break
+            # using regex is better for case insensitive col name reference handling
+            elif (copy_value := re.search(r"^%COPY:~(.+)$", new_val)) is not None:
+                if (target_copy := copy_value.group(1).upper()) in self.new_head[1:]:
+                    update_row[position] = update_row[self.new_head.index(target_copy)]
+                else:
+                    operations_status["old"][self.new_head[position]].pop()
+                    operations_status["errors"][self.new_head[position]].append(("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
+                                                                                f"debe seleccionar el nombre de una columna, su valor fue {target_copy} pero las opciones son {self.new_head[1:]} "
+                                                                                f"entrada [{current_row}] no actualizada"))
+            else:
+                update_row[position] = new_val
+        return operations_status
     
     def __rewrite_data(self, file_helper: TextIO) -> None:
         """ método privado rewrite_data permite reescribir los datos al
@@ -1457,6 +1509,8 @@ class SingleCsvManager(BaseCsvManager):
             head_file: list[str] = ["INDICE",] + new_head
             # you need to calculate the index before adding new cols to the head
             # if id_present == False the INDICE becomes a reserved col name and valueError is raised
+            # you can create a file with more columns than the limit by this method but ou wont be able 
+            # to write to it
             head_file.extend(new_cols)
             if len(head_file) != len(set(head_file)):
                 raise ValueError(f"los encabezados no pueden tener nombres repetidos para las columnas ({head_file})")
