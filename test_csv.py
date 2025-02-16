@@ -242,6 +242,7 @@ class TestCsvClassSave:
         expected_head = ["INDICE", "NAME", "CITY", "AGE", "JOB", "DATE"]
         expected_vals = [f"[{i}]" for i in range(1, 12)]
         # this should create a backup\times.csv file
+        # and mark that name as already taken
         SingleCsvManager.index(str(self.case_time_data), "#", False)
         get_values = []
         with open(fr"{Path(__file__).parent}\backup\times.csv", "r", encoding="utf-8",
@@ -708,7 +709,17 @@ class TestCsvClassSave:
                                  ({"SALARY": "", "salary": "NULL"}, ["name"])]
         for new_col, removed_col in invalid_new_col_names:
             with pytest.raises(ValueError, match="los encabezados no pueden tener nombres repetidos para las columnas"):
-                SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=new_col, exclude=removed_col)
+                SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False, extra_columns=new_col, 
+                                       exclude=removed_col, new_name="INVALID-TEST")
+
+        # raise error if a file with the same name exist and new name is not passed
+        with pytest.raises(ValueError, match="ocupado para crear el archivo ya existe en el backup"):
+            SingleCsvManager.index(file_path=str(self.case_time_data), delimiter="#", id_present=False)
+
+        # raise error if new_name is the name of a file already present in the backup even if
+        # the name of the file to be indexed is not present
+        with pytest.raises(ValueError, match="ocupado para crear el archivo ya existe en el backup"):
+            SingleCsvManager.index(file_path=str(self.case_different_index_name), delimiter="#", id_present=False, new_name="times")
 
         # resetting the case time data
         all_exclude_col_object = SingleCsvManager.index(file_path=str(self.case_time_data), 
@@ -918,6 +929,7 @@ class TestCsvClassSave:
         """ comprueba que no se pueden escribir nuevas entrada que no tengan los mismo nombres
         de atributos y cantidad de atributos que las entradas ya presentes aquí, se chequea que
         si al pasar un objeto que no calza con los ya presentes se lance un error"""
+        BaseCsvManager.delete_record("no_dict")
         SingleCsvManager.index(str(self.case_data_single), "#", new_name="no_dict")
         new_instance = SingleCsvManager("no_dict", self.SingleObjectTest, delimiter="#")
         new_instance.set_data(**self.arguments)
