@@ -264,7 +264,7 @@ class BaseCsvManager(metaclass=Meta):
         """
         for child_content in BaseCsvManager.backup.iterdir():
             if child_content.is_file() and child_content.suffix == ".csv":
-                yield str(child_content.stem)
+                yield child_content.stem
 
     # para eliminar archivos existentes en el backup
     @staticmethod
@@ -1482,6 +1482,9 @@ class SingleCsvManager(BaseCsvManager):
             raise ValueError(f"el argumento file_name debe ser una ruta valida pero no lo fue {file_name}")
         if current_file.suffix != ".csv":
             raise ValueError(f"el argumento file_name debe ser un archivo de extension.csv pero fue {current_file.suffix}")
+        if file_name in [name for name in BaseCsvManager.return_current_file_names()]:
+            raise ValueError(f"el nombre ({file_name}) ocupado para crear el archivo ya existe en el backup "
+                             "debe especificar otro usando el argumento new_name")
         # new argument to rename file on creation
         new_class = BaseCsvManager(file_name, None, delimiter)
         # creating backup file if does not exist (can happen if you enter a file
@@ -1491,7 +1494,6 @@ class SingleCsvManager(BaseCsvManager):
             try:
                 file_header = next(new_import)
             except StopIteration:
-
                 raise ValueError("No es posible realizar la operación en un archivo sin contenidos")
             # IN BOTH CASES THE FIRST ITEM OF THE HEAD IS PASS APART FROM THE REST TO PREVENT
             # THE USER FROM EXCLUDING THE INDEX MANUALLY
