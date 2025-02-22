@@ -42,7 +42,11 @@ To return the values that are of equal (<>) shorter (<<) larger (>>) or differen
 are always compared as string
 V- [], ][:
 To return the values that have ([]) or don't have (][) inside them the value to filter by, the values are always compared as strings
-
+VI- {}, }{:
+To return the values that are inside ({}) or not (}{) a range of values, to specify the values of the range the syntax is as follows:
+"<col_name>" {} %RANGE:<sep>[<val_1><sep><val_2>] where sep is a single character that is going to be used to create a list with the
+range of values, example: "names" {} %RANGE:-[John-Adams-Keith-Janis-Joe] if the syntax is not correct then the selector is going to return false,
+the values are always compared as strings (all the values in the range are treated as strings)
 
 to chain multiple conditions for a same column or for multiple ones you can use either the | or & logical 
 operators. Chained conditions are evaluated from left to right as they come for the following example 
@@ -83,8 +87,8 @@ columns per query the <col_name> parameter is the name of the col to be updated 
 value that is going to be updated to. inside the <value> part you can pass update functions that change the value
 to the one returned by the function, the current update functions are:
 
-I- %UPPER: expects 0 argumets and returns the current value all in uppercase
-II- %LOWER: expects 0 argumets and returns the current value all in lowercase
+I- %UPPER: expects 0 arguments and returns the current value all in uppercase
+II- %LOWER: expects 0 arguments and returns the current value all in lowercase
 III- %TITLE: expects 0 arguments and returns the current value with its first letter in uppercase
 IV- %CAPITALIZE: expects 0 arguments and return the current value with the first letter of each word in uppercase
 V- %CEIL: expects 0 arguments only usable in values that are numbers, returns the value rounded up
@@ -92,13 +96,17 @@ VI- %FLOOR: expects 0 arguments only usable in values that are numbers, returns 
 VII- %COPY: expects 1 argument, the name of the column to copy the value from, returns the value of that column in the current row
 VIII- %ADD: expects 1 argument, a number, date or string, returns the current value of the row added to the passed argument 
 IX- %SUB: expects 1 argument, a number or a date, returns the current value minus the passed argument
-X- %MUL: expects 1 argument, a number, returns the current value mulptiplied by the passed argument
+X- %MUL: expects 1 argument, a number, returns the current value multiplied by the passed argument
 XI- %DIV: expects 1 argument, a number, returns the current value divided by the passed argument
-XII- %NUM-FORMAT: expects 1 argument, a number (integer), can only be used on numbers, returns the current value formated to the x number of decimals
+XII- %NUM-FORMAT: expects 1 argument, a number (integer), can only be used on numbers, returns the current value formatted to the x number of decimals
 where x is the value of the argument 
 XIII- %RANDOM-INT: expects 2 arguments, both numbers (integers), returns a random int between and including the passed values
-XIV- %REPLACE: expects 2 arguments, both strings the first one is the character to replace and the second is the replacement value,
-returns the current value with the changed characters
+XIV- %REPLACE: expects 2 arguments, both strings the first one is the character to replace and the second is the replacement value (if 
+the second argument is %VOID then the first values is going to be eliminated without a replacement example: %REPLACE:~a#%VOID applied 
+to the word casa will result in the value cs), returns the current value with the changed characters
+XV- %MAP-VALUE: expects 0 arguments, if when using the update function you pass a dict to the argument map_values and you use this function the value is
+is going to be updated to whatever it maps inside the map_values dict (the keys in the dict have to be the value you want to update and
+the values have to be what you want to update to), else if map_values is not a set the value is not going to be updated when using this function
 
 THE SYNTAX FOR USING FUNCTIONS GOES AS FOLLOWS:
 

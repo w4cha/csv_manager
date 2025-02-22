@@ -4,6 +4,7 @@ from time import sleep
 import shutil
 import csv
 import dataclasses
+from random import choice
 
 try:
     # use pytest <file_to_test>.py to run 
@@ -76,6 +77,20 @@ class TestAttribute:
         for val in [-150, 0, 26, 100]:
             with pytest.raises(ValueError, match=f"pero su valor fue {val}"):
                 BaseCsvManager.max_col_limit = val
+
+    def test_name_range(self):
+        """ test para comprobar que solo se pueda pasar datos del tipo correcto y el
+        rango establecido cuando se quiera cambiar el número máximo de caracteres
+        que puede tener el nombre de un archivo"""
+        # test for incorrect type arguments
+        for val_type in ["c", [], {}, 52.08, 19.4, set()]:
+            with pytest.raises(ValueError, match=f"debe ser un int pero fue {type(val_type).__name__}"):
+                BaseCsvManager.max_name_limit = val_type
+
+        # test for values out of range
+        for val in [-57, -2, 0, 151, 500]:
+            with pytest.raises(ValueError, match=f"pero su valor fue {val}"):
+                BaseCsvManager.max_name_limit = val
 
     def test_invalid_backup_dir(self):
         # no se recomienda cambiar el directorio si ya hay uno creado 
@@ -384,6 +399,15 @@ class TestCsvClassSave:
         # header
         next(syntax_error)
         assert next(syntax_error) == "error de sintaxis"
+        range_errors = ["%RANGES:-[A-B-C-D]", "RANGE:,[E,F,G,H]",
+                        "%RANGE:[I_J_K_L]", "%RANGE:#(M#N#O#P)",
+                        "%RANGE:$[Q$R$S$T] ",]
+        for range_op in range_errors:
+            op_option = choice(["{}", "}{",])
+            for search_result in single_test_instance.leer_datos_csv(F'"SIZE" {op_option} {range_op}'):
+                pass
+            assert search_result == f"error de sintaxis al ocupar el operador {op_option}", f"fallo en {range_op}"
+
         # all of this needs refactoring
         functional_queries = {
             ('![START#END] "size" > 4 & "difficulty" >= 5000 | "difficulty" '
@@ -520,6 +544,12 @@ class TestCsvClassSave:
                          '"age" [] 4': [[2, 3, 7], 3],
                          '"age" ][ y': [list(range(1,13)), 12],
                          '"age" ][ 28': [[2, 3, 4, 5, 6, 7, 9, 10, 11, 12], 10],
+                         # doing the - at the end should not generate any problems when using
+                         # this operator
+                         '"NAME" {} %RANGE:-[Jessica Thomas-Robert Anderson-Emily Davis-]': [[4, 9, 10], 3],
+                         '"NAME" }{ %RANGE:-[Jessica Thomas-Robert Anderson-Emily Davis]': [[1, 2, 3, 5, 6, 7, 8, 11, 12], 9],
+                         '"age" {} %RANGE:%[28#33#40]': [[], 0],
+                         '"AGE" {} %RANGE:2[28#33#40]': [[], 0],
                          }
         for multi_type_col_query, str_val in str_date_test.items():
             get_entries = []
@@ -560,9 +590,8 @@ class TestCsvClassSave:
                                                                                     'y su elección fue %SUB entrada [8] no actualizada'), "DATE"],
             'UPDATE:~"NAME"=%DIV:~11 ON "INDICE" > 7 & "JOB" = HR Coordinator': [('no se puede aplicar una función que no sea %ADD sobre un str '
                                                                                  'y su elección fue %DIV entrada [8] no actualizada'), "NAME"],
-            'UPDATE:~"JOB"=%COPY:~INDICE ON "NAME" [= Jan': [("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
-                                                             f"debe seleccionar el nombre de una columna, su valor fue INDICE pero las opciones son {test_update_instance.new_head[1:]} "
-                                                              "entrada [2] no actualizada"), "JOB"],
+            'UPDATE:~"JOB"=%MAP-VALUE ON "NAME" [= Jan': [("para poder aplicar la función %MAP-VALUE map_values "
+                                                           "debe ser un dict con los valores a ocupar pero fue NoneType"), "JOB"],
             'UPDATE:~"CITY"=%COPY:~SALARY ON "NAME" ]= NEZ': [("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
                                                              f"debe seleccionar el nombre de una columna, su valor fue SALARY pero las opciones son {test_update_instance.new_head[1:]} "
                                                               "entrada [8] no actualizada"), "CITY"],
@@ -621,6 +650,8 @@ class TestCsvClassSave:
             'UPDATE:~"AGE"=inf "AGE"=%MUL:~-inf ON "INDICE" = 8': [[8], {3: "-inf"}],
             'UPDATE:~"AGE"=%UPPER "AGE"=%ADD:~inf ON "INDICE" [= 8': [[8], {3: "nan"}],
             'UPDATE:~"NAME"=MARK ON "INDICE" ]= 1': [[1, 11], {1: "MARK"}],
+            'UPDATE:~"NAME"=%REPLACE:~M#%VOID ON "NAME" <> 4 & "NAME" [] ARK & "INDICE" > 7': [[11], {1: "ARK"}],
+            'UPDATE:~"JOB"=Unemployed ON "NAME" {} %RANGE::[ARK:MARK:Luke]': [[1, 9, 11], {4: "Unemployed"}], 
         }
         for valid_request, results in valid_update_queries.items():
             values_updated = []
@@ -672,6 +703,28 @@ class TestCsvClassSave:
         next(rows)
         assert next(rows)[0] == "[2]", "fallo en actualizar y buscar 2"
         assert next(rows)[0] == "[11]", "fallo en actualizar y buscar 11"
+
+    def test_update_map_values(self):
+        """ comprueba la funcionalidad de la función de actualización de datos 
+        %MAP-VALUE"""
+        test_instance = SingleCsvManager("UPDATE_TIMES_2", delimiter="#")
+        for wrong_type in [[], set(), 2, "no"]:
+            result = next(test_instance.actualizar_datos('UPDATE:~"name"=%MAP-VALUE ON "INDICE" = 1', map_values=wrong_type))
+            assert "para poder aplicar la función" in result["errors"]["NAME"][0]
+        # if the passed dict is empty or the value to update is not a key then the value does not change
+        for old_value in test_instance.leer_datos_csv('[NAME] "INDICE" = 1'):
+            pass
+        for mapped_value in [{}, {"Raul": "Joan"}]:
+            new_value = next(test_instance.actualizar_datos('UPDATE:~"name"=%MAP-VALUE ON "INDICE" = 1', map_values=mapped_value))
+            assert old_value[-1] == new_value["old"]["NAME"][0]
+        # if you pass anything other than a str as a key or value is going to be turned to one automatically
+        map_val = {"John Doe": "J.D.", "Michael Johnson": "M.J.", "Keith Zorn": "K.Z.", "Linda Martinez": 45}
+        expected_index = {"[1]", "[3]", "[8]", "[11]"}
+        for updated_value in test_instance.actualizar_datos('UPDATE:~"NAME"=%MAP-VALUE ON "INDICE" > 0', map_values=map_val):
+            if (old_val := updated_value["old"]["NAME"][0]) in map_val:
+                expected_index -= {updated_value["result"][0],}
+                assert str(map_val[old_val]) == updated_value["result"][1]
+        assert not expected_index
 
     def test_create_writer(self):
         """ comprueba el funcionamiento del método estático create_writer"""
@@ -918,6 +971,14 @@ class TestCsvClassSave:
         test_instance.set_data(**self.arguments)
         assert "__dict__ que supera el máximo de columnas" in test_instance.guardar_datos_csv()
         BaseCsvManager.max_col_limit = 20
+
+    def test_max_name_limit(self):
+        """comprueba que se pueda cambiar el máximo de caracteres que
+        puede tener un archivo csv en su nombre"""
+        BaseCsvManager.max_name_limit = 1
+        with pytest.raises(ValueError, match="el nombre a asignar para el archivo"):
+            SingleCsvManager("no_dict", self.SingleObjectTest, delimiter="#", exclude=("other",))
+        BaseCsvManager.max_name_limit = 25
 
     def test_no_writer_instance(self):
         """ verifica que si no se han pasado datos a writer_instance no se pueda ocupar el método para 

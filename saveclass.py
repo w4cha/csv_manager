@@ -23,6 +23,8 @@ class Meta(type):
     _max_row_limit: int = 20_000
     # cantidad máxima de columnas que puede tener un archivo csv
     _max_col_limit: int = 15
+    # cantidad máxima de caracteres que puede tener el nombre de un archivo csv
+    _max_name_limit: int = 25
     # directorio en el cual se crearan los backups
     _backup = Path(fr"{Path(__file__).parent}\backup")
 
@@ -53,6 +55,20 @@ class Meta(type):
                 raise ValueError(f"solo se admiten valores entre 1 y 20 para el máximo de columnas pero su valor fue {value}")
         else:
             raise ValueError(f"el valor a asignar debe ser un int pero fue {type(value).__name__}")
+        
+    @property
+    def max_name_limit(cls) -> int:
+        return cls._max_name_limit
+    
+    @max_name_limit.setter
+    def max_name_limit(cls, value) -> None:
+        if isinstance(value, int):
+            if 0 < value <= 150:
+                cls._max_name_limit = value
+            else:
+                raise ValueError(f"solo se admiten valores entre 1 y 150 para el máximo de caracteres en el nombre de un archivo csv pero su valor fue {value}")
+        else:
+            raise ValueError(f"el valor a asignar debe ser un int pero fue {type(value).__name__}")
     
     @property
     def backup(cls) -> Path:
@@ -79,6 +95,8 @@ class BaseCsvManager(metaclass=Meta):
     - max_row_limit: un int que designa la cantidad máxima de filas que puede tener un archivo csv
 
     - max_col_limit: un int que designa la cantidad máxima de columnas que puede tener un archivo csv
+
+    - max_name_limit: un int que designa la cantidad máxima de caracteres que puede tener el nombre de un archivo csv
 
     - backup: una instancia de Path que designa el directorio en el cual se crearan los backups
 
@@ -121,7 +139,7 @@ class BaseCsvManager(metaclass=Meta):
     @file_name.setter
     def file_name(self, value) -> None:
         if isinstance(value, str):
-            if re.match(r"^[A-Za-z_0-9\-]{1,25}$", value) is not None:
+            if re.match(fr"^[A-Za-z_0-9\-]{{1,{BaseCsvManager.max_name_limit}}}$", value) is not None:
                 self._file_name = value
             else: 
                 raise ValueError("el nombre a asignar para el archivo debe solo contener los siguientes caracteres: "
@@ -361,6 +379,9 @@ class SingleCsvManager(BaseCsvManager):
 
     Los argumentos de iniciación son los mismos que ocupa la clase BaseCsvManager, por lo que se
     recomienda referirse a la documentación de esa clase para obtener más información
+
+    Importante: para obtener la ruta absoluta del archivo csv que ocupa la instancia actual 
+    ocupe el atributo instance_file_path de esta clase o el padre de ella
     """   
 
     def __init__(self, file_name: str, current_class: Type | None = None, delimiter: str = "|", 
@@ -784,13 +805,18 @@ class SingleCsvManager(BaseCsvManager):
             # should I use asyncio?
             self.current_rows = self.__len__()
 
-    def actualizar_datos(self, update_query) -> Generator[dict | str, None, str]:
+    def actualizar_datos(self, update_query, map_values = None) -> Generator[dict | str, None, str]:
         """ método publico actualizar_datos
 
         Argumentos:
 
         - update_query es la str utilizada para determinar que columnas y a que valor
         actualizarlas y en que filas
+
+        - map_values un dict o None si es dict debe contener como llaves el valor que se quiere actualizar y como 
+        valores el nuevo valor que tendrá la entrada a actualizar, para ocupar estos valores en una UPDATE query se tiene
+        que ocupar la función %MAP-VALUE la cual no acepta ningún argumento,  si se intenta ocupar %MAP-VALUE y map_values no es
+        dict entonces se pasara un error al valor de retorno
 
         Valor de retorno:
 
@@ -829,6 +855,12 @@ class SingleCsvManager(BaseCsvManager):
         if not isinstance(update_query, str):
             raise ValueError(
                 f"debe ingresar un str como instrucción para actualizar valores, pero se introdujo {type(update_query).__name__}")
+        # only considere map_values if is a dict otherwise pass an error if the user
+        # try to use the %MAP-VALUE function
+        if map_values is not None:
+            if isinstance(map_values, dict):
+                map_values = {str(key): str(value) for key, value in map_values.items()}
+
         # this works but use .strip() on the values to update
         # current re implementation only captures a group as needed
         # that why this is as verbose as it gets
@@ -894,7 +926,7 @@ class SingleCsvManager(BaseCsvManager):
                         # if only some cols where updated
                         # if all entries update have errors then we do not have old values since 
                         # they are still the same and in result we let know that no update was done
-                        update_status: dict[str, list | dict[str, list]] = self.__parsed_update_query_operation_resolver(entry, col_index, count)
+                        update_status: dict[str, list | dict[str, list]] = self.__parsed_update_query_operation_resolver(entry, col_index, count, map_values)
                         if sum(len(old_column) for old_column in update_status["old"].values()):
                             update_status["result"] = entry
                             was_updated += 1
@@ -909,7 +941,7 @@ class SingleCsvManager(BaseCsvManager):
 
     def __query_parser(self, string_pattern) -> list:
         """ método privado __query_parser
-        permite aplicar operaciones lógicas (>=, <=, <, >, =, != [=, ]=, [], ][, <>, ><, <<, >>) a las búsquedas
+        permite aplicar operaciones lógicas (>=, <=, <, >, =, != [=, ]=, [], ][, <>, ><, <<, >>, {}, }{) a las búsquedas
         del usuario dando más posibilidades al momento de filtrar datos
 
         Argumento:
@@ -931,9 +963,9 @@ class SingleCsvManager(BaseCsvManager):
             raise ValueError(
                 f"el tipo del argumento string_pattern debe ser str pero fue {type(string_pattern).__name__}")       
         query_regex: str = (r'^(?:!?\[([^\[,\s><=\|&!:"+*-\.\'/\?\]]+)*\] )?"([^\s,><=\|&!":+*-\.\'#/\?\[\]]+)" '
-                            r'(>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>) (.+?)')
+                            r'(>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>|\{\}|\}\{) (.+?)')
         query_regex += r"(?: (\||&) "
-        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>) (.+?))?'
+        query_regex += r"(?: (\||&) ".join([r'"([^,\s><=\|&!:"+*-\.\'#/\?\[\]]+)" (>=|>|<=|<|=|!=|\[=|\]=|\[\]|\]\[|<>|><|<<|>>|\{\}\}\{) (.+?))?'
                                             for _ in range(0, 3)])
         query_regex += r'(?:~((?:AVG|MAX|MIN|SUM|COUNT|LIMIT|ASC|DESC|UNIQUE):(?:[^:,\s><=!\|&"+*\'#/\?\[\]]+)*))?$'
         new_pattern = re.search(query_regex, string_pattern)
@@ -945,7 +977,7 @@ class SingleCsvManager(BaseCsvManager):
                 function_group.append(valid_tokens.pop())
             exclude_group = []
             for exclude in valid_tokens:
-                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]=", "[]", "][", "<>", "><", "<<", ">>"):
+                if exclude in ("<=", ">=", ">", "<", "=", "!=", "[=", "]=", "[]", "][", "<>", "><", "<<", ">>", "{}", "}{"):
                     exclude_group.pop()
                     break
                 else:
@@ -1031,6 +1063,7 @@ class SingleCsvManager(BaseCsvManager):
         "][": lambda x, y: str(y).lower() not in str(x).lower(), 
         "<>": lambda x, y: len(x) == y, "><": lambda x, y: len(x) != y,
         ">>": lambda x, y: len(x) > y, "<<": lambda x, y: len(x) < y,
+        "{}": lambda x, y: x in y, "}{": lambda x, y: x not in y,
         }
         for element in parsed_query:
             if isinstance(element, list):
@@ -1055,6 +1088,12 @@ class SingleCsvManager(BaseCsvManager):
                     # since both are string for this case
                     # no error should be expected to be raised
                     bool_values.append(parse_function(val, element[-1]))
+                elif element[1] in ("{}", "}{"):
+                    if (match_group := re.match(r"^%RANGE:(.)\[(.+)\]$", element[-1])) is not None:
+                        range_values: list = filter(None, match_group.group(2).split(match_group.group(1)))
+                        bool_values.append(parse_function(val, range_values))
+                    else:
+                        return f"error de sintaxis al ocupar el operador {element[1]}"
                 elif element[1] in ("<>", "><", "<<", ">>",):
                     try:
                         bool_values.append(parse_function(str(val), int(element[-1])))
@@ -1197,7 +1236,7 @@ class SingleCsvManager(BaseCsvManager):
                     break
         return status_container[0]
     
-    def __parsed_update_query_operation_resolver(self, update_row: list, update_value: list, current_row: int) -> dict[str, list | dict[str, list]]:
+    def __parsed_update_query_operation_resolver(self, update_row: list, update_value: list, current_row: int, map_values: None | dict = None) -> dict[str, list | dict[str, list]]:
         """ método privado parsed_query_operation_resolver implementa la lógica que actualiza los datos
         en una fila cuando se usa una query de actualización de valores
 
@@ -1210,6 +1249,9 @@ class SingleCsvManager(BaseCsvManager):
         
         - current_row un número, el valor del indice de la fila actual
 
+        - map_values None o un dict que contiene pares de llaves y valores que se usaran para
+        actualizar los campos si se usa la función %MAP-VALUES
+
         Valor de retorno:
 
         - un diccionario que contiene información sobre el estado de la fila después de ser actualizada,
@@ -1218,7 +1260,8 @@ class SingleCsvManager(BaseCsvManager):
         update_functions: dict[str, Callable] = {
                 "%UPPER": lambda x: str(x).upper(), "%LOWER": lambda x: str(x).lower(), 
                 "%TITLE": lambda x: str(x).title(), "%CAPITALIZE": lambda x: str(x).capitalize(),
-                "%REPLACE": lambda x, old, new: str(x).replace(old, new),
+                "%MAP-VALUE": lambda x, y: x if not isinstance(y, dict) else y.get(x, x),
+                "%REPLACE": lambda x, old, new: str(x).replace(old, new) if new != "%VOID" else str(x).replace(old, ""),
                 "%ADD": lambda x, y: str(x + y), "%SUB": lambda x, y: str(x - y),
                 "%MUL": lambda x, y: str(x * y), "%DIV": lambda x, y: str(x) if not y else str(x/y),
                 "%RANDOM-INT": lambda x, y: str(randint(x, y)) if x < y else str(randint(y, x)),
@@ -1236,6 +1279,12 @@ class SingleCsvManager(BaseCsvManager):
                 operations_status["errors"][self.new_head[position]] = []
             if new_val in ("%UPPER", "%LOWER", "%TITLE", "%CAPITALIZE"):
                 update_row[position] = update_functions[new_val](update_row[position])
+            elif new_val == "%MAP-VALUE":
+                if isinstance(map_values, dict):
+                    update_row[position] = update_functions[new_val](update_row[position], map_values)
+                else:
+                    operations_status["old"][self.new_head[position]].pop()
+                    operations_status["errors"][self.new_head[position]].append(f"para poder aplicar la función {new_val} map_values debe ser un dict con los valores a ocupar pero fue {type(map_values).__name__}")
             # NAN AND INF DO NOT PASS THIS TRY THEY RAISE VALUE ERROR
             elif new_val in ("%CEIL", "%FLOOR"):
                 try:
@@ -1334,8 +1383,11 @@ class SingleCsvManager(BaseCsvManager):
                             break
             # using regex is better for case insensitive col name reference handling
             elif (copy_value := re.search(r"^%COPY:~(.+)$", new_val)) is not None:
-                if (target_copy := copy_value.group(1).upper()) in self.new_head[1:]:
-                    update_row[position] = update_row[self.new_head.index(target_copy)]
+                if (target_copy := copy_value.group(1).upper()) in self.new_head:
+                    if target_copy == "INDICE":
+                        update_row[position] = re.sub(r"[\[\]]", "", update_row[self.new_head.index(target_copy)])
+                    else:
+                        update_row[position] = update_row[self.new_head.index(target_copy)]
                 else:
                     operations_status["old"][self.new_head[position]].pop()
                     operations_status["errors"][self.new_head[position]].append(("la función %COPY solo se puede usar para copiar el valor de una columna a otra para lo cual "
