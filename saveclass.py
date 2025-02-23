@@ -525,7 +525,7 @@ class SingleCsvManager(BaseCsvManager):
         2- si fue COUNT: una lista con dos items el primero el nombre de la operación y el segundo el total de entradas
 
         3- si fue UNIQUE: una lista con 4 items el primero el nombre de la operación, el segundo la columna donde
-        fue aplicada, el tercero un set de los valores duplicados en la columna si es que hubo y el cuarto el total
+        fue aplicada, el tercero un dict de la frecuencia de cada valor y el cuarto el total
         de filas con valores únicos
 
         Excepciones:
@@ -605,7 +605,7 @@ class SingleCsvManager(BaseCsvManager):
                                         elif operand == "SUM":
                                             function_match += [operand, 0, col_index]
                                         elif operand == "UNIQUE":
-                                            function_match += [operand, set(), [0, set()], col_index]
+                                            function_match += [operand, set(), [0, dict()], col_index]
                                         elif operand == "ASC" or operand == "DESC":
                                             header_offset = sum((1 for item in except_col if item < col_index))
                                             function_match += [operand, [], col_index - header_offset, set()]
@@ -1159,9 +1159,13 @@ class SingleCsvManager(BaseCsvManager):
                 # updating the count of unique values
                 status_container[2][0] += 1
             else:
-                # appending to the list of repeated values
-                status_container[2][-1].add(current_value)
                 status_container[0] = "PRESENT"
+            # adding the values to a dict to keep its
+            # frequency
+            if current_value not in status_container[2][-1]:
+                status_container[2][-1][current_value] = 1
+            else:
+                status_container[2][-1][current_value] += 1
         elif status_container[0] in ("ASC", "DESC"):
             last_len = len(status_container[-1])
             current_row = [current_row[0],] + [current_row[item] for item in
